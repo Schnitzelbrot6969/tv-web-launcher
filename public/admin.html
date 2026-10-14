@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f172a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Web-Launcher · Verwaltung</title>
+<style>
+  :root {
+    --bg: #f4f6fa; --card: #fff; --text: #172033; --muted: #66728a; --line: #e2e7ef;
+    --accent: #2563eb; --accent-text: #fff; --danger: #dc2626; --chip: #eef2f8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0d1117; --card: #161b24; --text: #e8edf5; --muted: #8f9bb0; --line: #252d3a; --accent: #3b82f6; --chip: #1f2632; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
+  header { position: sticky; top: 0; z-index: 5; background: var(--card); border-bottom: 1px solid var(--line); }
+  .bar { max-width: 860px; margin: 0 auto; padding: 14px 16px; display: flex; align-items: center; gap: 12px; }
+  h1 { font-size: 20px; margin: 0; flex: 1; }
+  h1 span { color: var(--accent); }
+  main { max-width: 860px; margin: 0 auto; padding: 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-bottom: 16px; }
+  .card h2 { font-size: 17px; margin: 0 0 12px; }
+  button, .btn { appearance: none; border: 1px solid var(--line); background: var(--chip); color: var(--text); border-radius: 10px; padding: 10px 14px;
+    font: inherit; font-weight: 600; cursor: pointer; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; text-decoration: none; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  button.danger { color: var(--danger); }
+  button.icon { width: 44px; padding: 0; font-size: 18px; }
+  button:disabled { opacity: .4; cursor: default; }
+  label { display: block; font-size: 14px; font-weight: 600; margin: 12px 0 6px; }
+  label small { font-weight: 400; color: var(--muted); }
+  input, select, textarea { width: 100%; font: inherit; font-size: 16px; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 11px 12px; }
+  textarea { min-height: 90px; font-family: ui-monospace, Consolas, monospace; font-size: 14px; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 560px) { .row2 { grid-template-columns: 1fr; } }
+  .zoomrow { display: flex; align-items: center; gap: 12px; }
+  .zoomrow input[type=range] { flex: 1; padding: 0; }
+  .zoomrow output { min-width: 56px; text-align: right; font-weight: 700; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
+  details summary { cursor: pointer; font-weight: 600; margin-top: 14px; color: var(--muted); }
+  ul#list { list-style: none; margin: 0; padding: 0; }
+  li.site { display: flex; align-items: center; gap: 12px; padding: 10px 4px; border-bottom: 1px solid var(--line); background: var(--card); }
+  li.site:last-child { border-bottom: 0; }
+  li.site.dragging { opacity: .5; }
+  li.site.over { box-shadow: inset 0 3px 0 var(--accent); }
+  .handle { cursor: grab; color: var(--muted); font-size: 20px; padding: 0 2px; user-select: none; touch-action: none; }
+  .ico { width: 44px; height: 44px; border-radius: 10px; background: #fff; flex: none; display: flex; align-items: center; justify-content: center; overflow: hidden; border: 1px solid var(--line); }
+  .ico img { width: 100%; height: 100%; object-fit: contain; }
+  .ico.letter { color: #fff; font-weight: 700; font-size: 20px; border: 0; }
+  .meta { flex: 1; min-width: 0; }
+  .meta b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .meta span { display: block; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 3px; }
+  .tag { font-size: 11px; background: var(--chip); color: var(--muted); border-radius: 6px; padding: 1px 6px; }
+  .btns { display: flex; gap: 6px; flex: none; }
+  @media (max-width: 560px) {
+    li.site { flex-wrap: wrap; }
+    .btns { width: 100%; justify-content: flex-end; }
+  }
+  .muted { color: var(--muted); font-size: 14px; }
+  code { background: var(--chip); padding: 2px 6px; border-radius: 6px; font-size: 13px; word-break: break-all; }
+  #toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom)); transform: translateX(-50%) translateY(120px); background: #111827; color: #fff;
+    padding: 12px 18px; border-radius: 12px; font-weight: 600; transition: transform .25s; z-index: 20; max-width: calc(100% - 32px); }
+  #toast.on { transform: translateX(-50%) translateY(0); }
+  #toast.err { background: var(--danger); }
+  .busy { opacity: .6; pointer-events: none; }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <h1>Web-<span>Launcher</span> · Verwaltung</h1>
+    <a class="btn" href="/tv" target="_blank" rel="noopener">TV-Ansicht</a>
+  </div>
+</header>
+<main>
+  <section class="card" id="formcard">
+    <h2 id="formtitle">Webseite hinzufügen</h2>
+    <form id="form" autocomplete="off">
+      <div class="row2">
+        <div>
+          <label for="f-name">Name</label>
+          <input id="f-name" required maxlength="80" placeholder="z. B. SRF News">
+        </div>
+        <div>
+          <label for="f-url">Adresse (URL)</label>
+          <input id="f-url" required inputmode="url" placeholder="https://www.srf.ch/news" autocapitalize="off" spellcheck="false">
+        </div>
+      </div>
+      <details id="more">
+        <summary>Weitere Einstellungen (Icon, Zoom, CSS …)</summary>
+        <label for="f-icon">Icon-URL <small>(leer = Favicon automatisch holen)</small></label>
+        <input id="f-icon" inputmode="url" placeholder="https://…/icon.png" autocapitalize="off" spellcheck="false">
+        <label for="f-zoom">Zoom</label>
+        <div class="zoomrow">
+          <input type="range" id="f-zoom" min="50" max="250" step="5" value="100">
+          <output id="f-zoom-out">100 %</output>
+        </div>
+        <div class="row2">
+          <div>
+            <label for="f-ua">User-Agent <small>(nur JavaScript-Erkennung)</small></label>
+            <select id="f-ua">
+              <option value="default">Standard (TV-Browser)</option>
+              <option value="desktop">Desktop (Windows/Chrome)</option>
+              <option value="tv">Smart-TV (Tizen)</option>
+            </select>
+          </div>
+          <div>
+            <label for="f-nav">Pfeiltasten-Navigation</label>
+            <select id="f-nav">
+              <option value="spatial">Launcher (Fokusrahmen)</option>
+              <option value="native">Eigene Navigation der Webseite</option>
+            </select>
+          </div>
+        </div>
+        <label for="f-css">Eigenes CSS <small>(z. B. Cookie-Banner ausblenden)</small></label>
+        <textarea id="f-css" spellcheck="false" placeholder="#cookie-banner, .consent { display: none !important; }"></textarea>
+        <label for="f-js">Eigenes JavaScript <small>(optional, für Fortgeschrittene)</small></label>
+        <textarea id="f-js" spellcheck="false" placeholder="var b = document.querySelector('.accept'); if (b) b.click();"></textarea>
+      </details>
+      <div class="actions">
+        <button class="primary" type="submit" id="f-save">Speichern</button>
+        <button type="button" id="f-cancel" hidden>Abbrechen</button>
+        <button type="button" id="f-refresh" hidden>Icon neu holen</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>Webseiten auf dem TV <span class="muted" id="count"></span></h2>
+    <p class="muted">Reihenfolge per Pfeil-Buttons oder Ziehen am ☰ ändern.</p>
+    <ul id="list"></ul>
+  </section>
+
+  <section class="card">
+    <h2>Sichern &amp; Wiederherstellen</h2>
+    <div class="actions">
+      <a class="btn" href="/api/admin/export" download>Liste exportieren (JSON)</a>
+      <button type="button" id="imp-btn">Liste importieren …</button>
+      <input type="file" id="imp-file" accept="application/json,.json" hidden>
+    </div>
+    <label><input type="checkbox" id="imp-append" style="width:auto"> Beim Import anhängen statt ersetzen</label>
+  </section>
+
+  <section class="card">
+    <h2>Info</h2>
+    <p class="muted">TV-Kachelseite: <code id="tvurl"></code><br>
+    TV-Skript: <code id="tvjs"></code><br>
+    Neue Einträge erscheinen auf dem TV beim nächsten Öffnen der Web-Launcher-App (oder rote Taste auf der Kachelseite).</p>
+  </section>
+</main>
+<div id="toast"></div>
+
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var sites = [];
+  var editing = null;
+
+  $('tvurl').textContent = location.origin + '/tv';
+  $('tvjs').textContent = location.origin + '/tv.js';
+
+  var toastT;
+  function toast(msg, err) {
+    var t = $('toast');
+    t.textContent = msg;
+    t.className = 'on' + (err ? ' err' : '');
+    clearTimeout(toastT);
+    toastT = setTimeout(function () { t.className = ''; }, 2600);
+  }
+
+  function api(method, url, body) {
+    return fetch(url, {
+      method: method,
+      headers: body ? { 'Content-Type': 'application/json' } : {},
+      body: body ? JSON.stringify(body) : undefined,
+      credentials: 'same-origin',
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (!r.ok) throw new Error(j.error || ('Fehler ' + r.status));
+        return j;
+      });
+    });
+  }
+
+  function color(name) {
+    var h = 0;
+    for (var i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 360;
+    return 'hsl(' + h + ',55%,45%)';
+  }
+
+  function host(u) { try { return new URL(u).hostname.replace(/^www\./, ''); } catch (e) { return u; } }
+
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+
+  function letter(ico, name) {
+    ico.className = 'ico letter';
+    ico.style.background = color(name);
+    ico.textContent = name.charAt(0).toUpperCase();
+  }
+
+  function render() {
+    var ul = $('list');
+    ul.innerHTML = '';
+    $('count').textContent = '(' + sites.length + ')';
+    if (!sites.length) ul.appendChild(el('li', 'muted', 'Noch keine Einträge.'));
+    sites.forEach(function (s, i) {
+      var li = el('li', 'site');
+      li.dataset.id = s.id;
+      li.draggable = true;
+      var h = el('span', 'handle', '☰');
+      h.title = 'Ziehen zum Verschieben';
+      var ico = el('div', 'ico');
+      if (s.icon) {
+        var img = new Image();
+        img.src = s.icon;
+        img.alt = '';
+        img.onerror = function () { letter(ico, s.name); };
+        ico.appendChild(img);
+      } else letter(ico, s.name);
+      var meta = el('div', 'meta');
+      meta.appendChild(el('b', '', s.name));
+      meta.appendChild(el('span', '', host(s.url)));
+      var tags = el('div', 'tags');
+      if (s.zoom && s.zoom !== 100) tags.appendChild(el('span', 'tag', 'Zoom ' + s.zoom + ' %'));
+      if (s.css) tags.appendChild(el('span', 'tag', 'CSS'));
+      if (s.js) tags.appendChild(el('span', 'tag', 'JS'));
+      if (s.userAgent && s.userAgent !== 'default') tags.appendChild(el('span', 'tag', 'UA ' + s.userAgent));
+      if (s.nav === 'native') tags.appendChild(el('span', 'tag', 'eigene Navigation'));
+      if (tags.children.length) meta.appendChild(tags);
+      var btns = el('div', 'btns');
+      var up = el('button', 'icon', '↑'); up.type = 'button'; up.title = 'Nach oben'; up.disabled = i === 0;
+      up.onclick = function () { moveTo(i, i - 1); };
+      var dn = el('button', 'icon', '↓'); dn.type = 'button'; dn.title = 'Nach unten'; dn.disabled = i === sites.length - 1;
+      dn.onclick = function () { moveTo(i, i + 1); };
+      var ed = el('button', '', 'Bearbeiten'); ed.type = 'button';
+      ed.onclick = function () { edit(s); };
+      var del = el('button', 'danger icon', '✕'); del.type = 'button'; del.title = 'Löschen';
+      del.onclick = function () { remove(s); };
+      btns.appendChild(up); btns.appendChild(dn); btns.appendChild(ed); btns.appendChild(del);
+      li.appendChild(h); li.appendChild(ico); li.appendChild(meta); li.appendChild(btns);
+      ul.appendChild(li);
+    });
+    wireDrag();
+  }
+
+  function load() {
+    return api('GET', '/api/admin/sites').then(function (j) { sites = j.sites; render(); })
+      .catch(function (e) { toast(e.message, true); });
+  }
+
+  function saveOrder() {
+    return api('POST', '/api/admin/order', { ids: sites.map(function (s) { return s.id; }) })
+      .then(function (j) { sites = j.sites; render(); toast('Reihenfolge gespeichert'); })
+      .catch(function (e) { toast(e.message, true); load(); });
+  }
+
+  function moveTo(from, to) {
+    if (to < 0 || to >= sites.length || from === to) return;
+    var s = sites.splice(from, 1)[0];
+    sites.splice(to, 0, s);
+    render();
+    saveOrder();
+  }
+
+  // Drag & Drop: Maus (HTML5) und Touch (am Griff ☰)
+  function clearOver() { document.querySelectorAll('li.over').forEach(function (x) { x.classList.remove('over'); }); }
+  function dropOn(fromId, toId) {
+    if (!fromId || fromId === toId) return;
+    var from = sites.findIndex(function (s) { return s.id === fromId; });
+    var to = sites.findIndex(function (s) { return s.id === toId; });
+    if (from >= 0 && to >= 0) moveTo(from, to);
+  }
+  function liAt(x, y) {
+    var t = document.elementFromPoint(x, y);
+    return t && t.closest ? t.closest('li.site') : null;
+  }
+  function wireDrag() {
+    var dragId = null;
+    document.querySelectorAll('li.site').forEach(function (li) {
+      li.addEventListener('dragstart', function (e) { dragId = li.dataset.id; li.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', dragId); } catch (x) {} });
+      li.addEventListener('dragend', function () { li.classList.remove('dragging'); clearOver(); });
+      li.addEventListener('dragover', function (e) { e.preventDefault(); clearOver(); li.classList.add('over'); });
+      li.addEventListener('drop', function (e) { e.preventDefault(); dropOn(dragId, li.dataset.id); });
+      var handle = li.querySelector('.handle');
+      handle.addEventListener('touchstart', function (e) { dragId = li.dataset.id; li.classList.add('dragging'); e.preventDefault(); }, { passive: false });
+      handle.addEventListener('touchmove', function (e) {
+        var t = e.touches[0];
+        var over = liAt(t.clientX, t.clientY);
+        clearOver();
+        if (over) over.classList.add('over');
+        e.preventDefault();
+      }, { passive: false });
+      handle.addEventListener('touchend', function (e) {
+        var t = e.changedTouches[0];
+        var over = liAt(t.clientX, t.clientY);
+        li.classList.remove('dragging');
+        clearOver();
+        if (over) dropOn(dragId, over.dataset.id);
+      });
+    });
+  }
+
+  // Formular
+  $('f-zoom').addEventListener('input', function () { $('f-zoom-out').textContent = this.value + ' %'; });
+
+  function resetForm() {
+    editing = null;
+    $('form').reset();
+    $('f-zoom-out').textContent = '100 %';
+    $('formtitle').textContent = 'Webseite hinzufügen';
+    $('f-cancel').hidden = true;
+    $('f-refresh').hidden = true;
+    $('more').open = false;
+  }
+
+  function edit(s) {
+    editing = s;
+    $('f-name').value = s.name;
+    $('f-url').value = s.url;
+    $('f-icon').value = /^https?:/i.test(s.icon || '') ? s.icon : '';
+    $('f-zoom').value = s.zoom || 100;
+    $('f-zoom-out').textContent = (s.zoom || 100) + ' %';
+    $('f-ua').value = s.userAgent || 'default';
+    $('f-nav').value = s.nav || 'spatial';
+    $('f-css').value = s.css || '';
+    $('f-js').value = s.js || '';
+    $('formtitle').textContent = '„' + s.name + '“ bearbeiten';
+    $('f-cancel').hidden = false;
+    $('f-refresh').hidden = false;
+    $('more').open = !!(s.css || s.js || (s.zoom && s.zoom !== 100) || (s.userAgent && s.userAgent !== 'default') || s.nav === 'native');
+    $('formcard').scrollIntoView({ behavior: 'smooth' });
+  }
+
+  $('f-cancel').onclick = resetForm;
+
+  $('f-refresh').onclick = function () {
+    if (!editing) return;
+    var card = $('formcard');
+    card.classList.add('busy');
+    api('POST', '/api/admin/sites/' + editing.id + '/refresh-icon').then(function () { toast('Icon aktualisiert'); return load(); })
+      .catch(function (e) { toast(e.message, true); }).then(function () { card.classList.remove('busy'); });
+  };
+
+  $('form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var body = {
+      name: $('f-name').value.trim(),
+      url: $('f-url').value.trim(),
+      zoom: parseInt($('f-zoom').value, 10),
+      userAgent: $('f-ua').value,
+      nav: $('f-nav').value,
+      css: $('f-css').value,
+      js: $('f-js').value,
+    };
+    var iconInput = $('f-icon').value.trim();
+    if (iconInput || !editing) body.icon = iconInput;
+    var wasEditing = !!editing;
+    var card = $('formcard');
+    card.classList.add('busy');
+    var p = editing ? api('PUT', '/api/admin/sites/' + editing.id, body) : api('POST', '/api/admin/sites', body);
+    p.then(function () { toast(wasEditing ? 'Gespeichert' : 'Hinzugefügt – erscheint auf dem TV'); resetForm(); return load(); })
+      .catch(function (err) { toast(err.message, true); })
+      .then(function () { card.classList.remove('busy'); });
+  });
+
+  function remove(s) {
+    if (!confirm('„' + s.name + '“ wirklich löschen?')) return;
+    api('DELETE', '/api/admin/sites/' + s.id).then(function () { toast('Gelöscht'); if (editing && editing.id === s.id) resetForm(); return load(); })
+      .catch(function (e) { toast(e.message, true); });
+  }
+
+  // Import
+  $('imp-btn').onclick = function () { $('imp-file').click(); };
+  $('imp-file').onchange = function () {
+    var f = this.files[0];
+    if (!f) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      var data;
+      try { data = JSON.parse(reader.result); } catch (e) { toast('Keine gültige JSON-Datei', true); return; }
+      var append = $('imp-append').checked;
+      if (!append && !confirm('Bestehende Liste durch den Import ersetzen?')) return;
+      api('POST', '/api/admin/import?mode=' + (append ? 'append' : 'replace'), data)
+        .then(function (j) { sites = j.sites; render(); toast(j.sites.length + ' Einträge in der Liste'); })
+        .catch(function (e) { toast(e.message, true); });
+    };
+    reader.readAsText(f);
+    this.value = '';
+  };
+
+  load();
+})();
+</script>
+</body>
+</html>

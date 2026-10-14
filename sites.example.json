@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "sites": [
+    {
+      "name": "SRF News",
+      "url": "https://www.srf.ch/news",
+      "zoom": 125,
+      "css": "#usercentrics-root, .cmp-container { display: none !important; }",
+      "userAgent": "default",
+      "nav": "spatial"
+    },
+    {
+      "name": "Wikipedia",
+      "url": "https://de.wikipedia.org/wiki/Wikipedia:Hauptseite",
+      "zoom": 150,
+      "css": "",
+      "userAgent": "desktop",
+      "nav": "spatial"
+    },
+    {
+      "name": "MeteoSchweiz",
+      "url": "https://www.meteoschweiz.admin.ch/",
+      "zoom": 125,
+      "css": "",
+      "userAgent": "default",
+      "nav": "spatial"
+    }
+  ]
+}

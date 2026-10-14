@@ -1,0 +1,39 @@
+# TV-Web-Launcher – in UGOS Pro: Docker > Projekt > Erstellen > Inhalt dieser Datei einfuegen.
+# Der Quellcode wird bei jedem Start von GitHub geladen (kein eigenes Image noetig).
+# Update = Container neu starten. Daten liegen in /volume1/docker/tv-launcher/data.
+name: tv-web-launcher
+
+services:
+  tv-launcher:
+    image: node:20-alpine
+    container_name: tv-web-launcher
+    restart: unless-stopped
+    environment:
+      PORT: "8095"
+      DATA_DIR: /data
+      ADMIN_USER: admin
+      ADMIN_PASSWORD: "BITTE-AENDERN"
+      REPO: "GITHUB-BENUTZER/tv-web-launcher"
+      BRANCH: main
+      TZ: Europe/Zurich
+    command:
+      - sh
+      - -c
+      - |
+        mkdir -p /app /tmp/src
+        if wget -q -T 20 -O /tmp/src.tgz "https://codeload.github.com/$${REPO}/tar.gz/refs/heads/$${BRANCH}" && tar xzf /tmp/src.tgz -C /tmp/src --strip-components=1; then
+          cp -r /tmp/src/. /app/ && echo "Code aktualisiert von $${REPO}@$${BRANCH}"
+        else
+          echo "GitHub nicht erreichbar - starte vorhandenen Code"
+        fi
+        exec node /app/src/server.js
+    ports:
+      - "8095:8095"
+    volumes:
+      - /volume1/docker/tv-launcher/data:/data
+      - /volume1/docker/tv-launcher/app:/app
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8095/health"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
