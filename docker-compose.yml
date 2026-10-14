@@ -13,7 +13,7 @@ services:
       DATA_DIR: /data
       ADMIN_USER: admin
       ADMIN_PASSWORD: "BITTE-AENDERN"
-      REPO: "GITHUB-BENUTZER/tv-web-launcher"
+      REPO: "Schnitzelbrot6969/tv-web-launcher"
       BRANCH: main
       TZ: Europe/Zurich
     command:

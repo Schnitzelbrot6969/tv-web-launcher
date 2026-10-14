@@ -48,7 +48,7 @@ tv-web-launcher/
 2. Projektname `tv-web-launcher`, Speicherort z. B. `/volume1/docker/tv-launcher`.
 3. Inhalt von [`docker-compose.yml`](docker-compose.yml) einfügen und **zwei Werte anpassen**:
    - `ADMIN_PASSWORD` – eigenes Passwort für die Admin-Seite
-   - `REPO` – `<GitHub-Benutzer>/tv-web-launcher`
+   - `REPO` – `Schnitzelbrot6969/tv-web-launcher`
 4. **Bereitstellen**. Nach ca. 30 Sekunden läuft der Container (Status «Läuft»).
 5. Test im Browser: `http://<NAS-IP>:8095/tv` zeigt die Kacheln, `http://<NAS-IP>:8095/admin` fragt nach dem Passwort (Benutzer `admin`).
 
@@ -65,7 +65,7 @@ Schritte mit **[Fernbedienung]** macht eine Person am TV, alles andere läuft am
 1. **[Fernbedienung]** Einstellungen → Support → Über dieses TV → Software-Version notieren.
 2. **[Fernbedienung]** Apps öffnen → auf der Fernbedienung `1 2 3 4 5` → *Developer Mode* **On** → IP des PCs eintragen → TV neu starten.
 3. Am PC **TizenBrew Installer Desktop** starten (github.com/reisxd/TizenBrewInstaller, Releases), TV-IP eingeben, «TizenBrew installieren». Der Installer signiert TizenBrew für Tizen 7+ neu.
-4. **[Fernbedienung]** TizenBrew öffnen → *Module Manager* → *Add GitHub Module* → `<GitHub-Benutzer>/tv-web-launcher-module`.
+4. **[Fernbedienung]** TizenBrew öffnen → *Module Manager* → *Add GitHub Module* → `Schnitzelbrot6969/tv-web-launcher-module`.
 5. **[Fernbedienung]** Modul «Web-Launcher» starten → Kachelseite erscheint. Optional in den TizenBrew-Einstellungen als *Autolaunch* setzen.
 
 ## Neue Webseite hinzufügen
@@ -96,7 +96,7 @@ Reihenfolge: Pfeil-Buttons oder am ☰ ziehen. Sicherung: «Liste exportieren» 
   ```bash
   NAS_URL=http://192.168.1.194:8095 node tools/build-module.js
   ```
-  danach im Modul-Repo committen/pushen und den jsDelivr-Cache leeren: `https://purge.jsdelivr.net/gh/<GitHub-Benutzer>/tv-web-launcher-module@main/loader.js`. Auf dem TV TizenBrew neu starten.
+  danach im Modul-Repo committen/pushen und den jsDelivr-Cache leeren: `https://purge.jsdelivr.net/gh/Schnitzelbrot6969/tv-web-launcher-module@main/loader.js`. Auf dem TV TizenBrew neu starten.
 
 ## Lokal entwickeln
 
