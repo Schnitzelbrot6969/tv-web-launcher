@@ -46,7 +46,9 @@ const pkg = {
   appName: 'Web-Launcher',
   websiteURL: homeUrl,
   main: 'loader.js',
-  keys: ['ColorF0Red', 'MediaPlayPause', 'MediaPlay', 'MediaPause', 'MediaStop', 'MediaFastForward', 'MediaRewind'],
+  // Leer lassen: TizenBrew bricht den Start ab, wenn registerKey fuer eine dem TV unbekannte Taste wirft
+  // (z. B. Farbtasten bei der Smart Remote). tv.js registriert die Tasten selbst mit try/catch.
+  keys: [],
   license: 'MIT',
 };
 
