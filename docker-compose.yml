@@ -32,8 +32,26 @@ services:
     volumes:
       - ./data:/data
       - ./app:/app
+    networks:
+      default: {}
+      lan:
+        ipv4_address: 192.168.1.230
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8095/health"]
       interval: 60s
       timeout: 5s
       retries: 3
+
+# Eigene LAN-Adresse (macvlan an LAN2 = eth1). Noetig, weil VMs auf dem NAS (MacVTap)
+# die NAS-IP selbst nicht erreichen, wohl aber andere macvlan-Adressen an derselben Netzwerkkarte.
+networks:
+  lan:
+    driver: macvlan
+    driver_opts:
+      parent: eth1
+      macvlan_mode: bridge
+    ipam:
+      config:
+        - subnet: 192.168.1.0/24
+          gateway: 192.168.1.1
+          ip_range: 192.168.1.230/32

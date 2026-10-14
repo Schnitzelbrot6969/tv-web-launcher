@@ -56,7 +56,7 @@ tv-web-launcher/
 > Keine Portfreigabe im Router einrichten – der Dienst ist nur fürs Heimnetz gedacht.
 
 ### Sonderfall: Zugriff aus einer VM auf demselben NAS
-VMs auf dem UGREEN-NAS sind per *macvtap* angebunden und erreichen die NAS-IP selbst **nicht**. Die Admin-Seite daher von einem anderen Gerät im Heimnetz öffnen (PC, Notebook) – oder dem Container per UGOS-Netzwerkbrücke + *macvlan* eine eigene LAN-IP geben.
+VMs auf dem UGREEN-NAS sind per *MacVTap* angebunden und erreichen die NAS-IP selbst **nicht**. Deshalb hängt der Container zusätzlich per **macvlan** an LAN2 (`eth1`, Brückenmodus) und hat die eigene Adresse **192.168.1.230** – darüber ist die Admin-Seite auch aus der VM erreichbar: `http://192.168.1.230:8095/admin`. Der TV nutzt weiter `http://192.168.1.194:8095/tv` (beides funktioniert im ganzen Heimnetz).
 
 ## TizenBrew auf dem TV (Tizen 8, einmalig)
 
