@@ -1,6 +1,6 @@
 # TV-Web-Launcher – in UGOS Pro: Docker > Projekt > Erstellen > Inhalt dieser Datei einfuegen.
 # Der Quellcode wird bei jedem Start von GitHub geladen (kein eigenes Image noetig).
-# Update = Container neu starten. Daten liegen in /volume1/docker/tv-launcher/data.
+# Update = Container neu starten. Daten liegen im Projektordner unter ./data (z. B. docker/tv-launcher/data).
 name: tv-web-launcher
 
 services:
@@ -30,8 +30,8 @@ services:
     ports:
       - "8095:8095"
     volumes:
-      - /volume1/docker/tv-launcher/data:/data
-      - /volume1/docker/tv-launcher/app:/app
+      - ./data:/data
+      - ./app:/app
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8095/health"]
       interval: 60s
