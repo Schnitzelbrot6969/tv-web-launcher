@@ -12,6 +12,14 @@ Admin-Seite (Browser) ──► sites.json auf dem NAS ──► Kachelseite /tv
 | TizenBrew | TV (einmalig) | Homebrew-Launcher für Samsung-TVs |
 | Modul «Web-Launcher» | GitHub-Repo `tv-web-launcher-module` | öffnet die Kachelseite und führt das TV-Skript in jeder Seite aus |
 
+## Wichtig: So läuft es auf dem TV (ab v1.2.0)
+
+- Die aktuelle Tizen-Firmware verweigert TizenBrew das Öffnen privater IP-Adressen (**ERR_ACCESS_DENIED**). Darum liegt die Kachelseite `tv.html` im Modul und wird von TizenBrew lokal (`http://127.0.0.1:8081/...`) angezeigt.
+- Der Modul-Dienst `service.js` läuft auf dem TV (Node.js) und bietet unter `http://127.0.0.1:8096` einen Proxy zum NAS (`/api/sites`, `/icons/*`).
+- Im Manifest bleibt `keys` leer – sonst bricht der Start bei Tasten ab, die die Smart Remote nicht kennt.
+- TizenBrew lädt Module ausschliesslich über jsDelivr. Für GitHub-Quellen war jsDelivr zeitweise gestört; robuster ist ein npm-Paket (vorbereitet: `MODULE_ID=npm/tvlaunch MODULE_DIR=../tv-web-launcher-npm node tools/build-module.js`, dann `npm publish` in diesem Ordner).
+- Nach der TizenBrew-Installation im Entwicklermodus die Host-PC-IP auf **127.0.0.1** setzen und den TV vom Strom trennen.
+
 ## Technische Entscheidungen
 
 | Thema | Entscheidung | Grund |
