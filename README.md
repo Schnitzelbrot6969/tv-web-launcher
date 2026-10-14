@@ -56,17 +56,18 @@ tv-web-launcher/
 > Keine Portfreigabe im Router einrichten – der Dienst ist nur fürs Heimnetz gedacht.
 
 ### Sonderfall: Zugriff aus einer VM auf demselben NAS
-VMs auf dem UGREEN-NAS sind per *macvtap* angebunden und erreichen die NAS-IP selbst **nicht**. Damit die Admin-Seite auch aus der VM erreichbar ist, bekommt der Container zusätzlich eine eigene LAN-Adresse (Docker-Netzwerk *macvlan*), siehe `docker-compose.yml`.
+VMs auf dem UGREEN-NAS sind per *macvtap* angebunden und erreichen die NAS-IP selbst **nicht**. Die Admin-Seite daher von einem anderen Gerät im Heimnetz öffnen (PC, Notebook) – oder dem Container per UGOS-Netzwerkbrücke + *macvlan* eine eigene LAN-IP geben.
 
 ## TizenBrew auf dem TV (Tizen 8, einmalig)
 
-Schritte mit **[Fernbedienung]** macht eine Person am TV, alles andere läuft am PC.
+Schritte mit **[Fernbedienung]** macht eine Person am TV (Samsung Smart Remote ohne Zifferntasten), alles andere läuft am PC.
 
-1. **[Fernbedienung]** Einstellungen → Support → Über dieses TV → Software-Version notieren.
-2. **[Fernbedienung]** Apps öffnen → auf der Fernbedienung `1 2 3 4 5` → *Developer Mode* **On** → IP des PCs eintragen → TV neu starten.
-3. Am PC **TizenBrew Installer Desktop** starten (github.com/reisxd/TizenBrewInstaller, Releases), TV-IP eingeben, «TizenBrew installieren». Der Installer signiert TizenBrew für Tizen 7+ neu.
-4. **[Fernbedienung]** TizenBrew öffnen → *Module Manager* → *Add GitHub Module* → `Schnitzelbrot6969/tv-web-launcher-module`.
-5. **[Fernbedienung]** Modul «Web-Launcher» starten → Kachelseite erscheint. Optional in den TizenBrew-Einstellungen als *Autolaunch* setzen.
+1. **[Fernbedienung]** Home-Taste → **Apps** öffnen.
+2. **[Fernbedienung]** Auf der Apps-Seite die Taste **123** (bzw. die Farb-/Zahlen-Taste) drücken → auf der Bildschirm-Zifferntastatur `1 2 3 4 5` eingeben.
+3. **[Fernbedienung]** *Developer Mode* auf **On**, bei *Host PC IP* die IP des PCs eintragen, auf dem der TizenBrew Installer läuft → **OK** → TV neu starten (Power-Taste gedrückt halten, bis das Samsung-Logo kommt).
+4. Am PC **TizenBrew Installer Desktop** starten (github.com/reisxd/TizenBrewInstaller, Releases), TV-IP eingeben, «Install TizenBrew». Für Tizen 7+ fragt er nach einem Samsung-Konto (Signatur). Am TV die Verbindung ggf. mit **Zulassen** bestätigen.
+5. **[Fernbedienung]** TizenBrew öffnen → *Module Manager* → *Add Module* → **GitHub** → `Schnitzelbrot6969/tv-web-launcher-module`.
+6. **[Fernbedienung]** Modul «Web-Launcher» starten → Kachelseite. Optional in TizenBrew *Autolaunch* = Web-Launcher.
 
 ## Neue Webseite hinzufügen
 
@@ -84,7 +85,8 @@ Reihenfolge: Pfeil-Buttons oder am ☰ ziehen. Sicherung: «Liste exportieren» 
 | Pfeile | Kachel wählen | Fokus zum nächsten Link/Button/Feld; ohne Ziel → scrollen |
 | OK | Webseite öffnen | Element anklicken; Textfeld öffnet die Bildschirmtastatur |
 | Zurück | App beenden | Seite zurück; auf der Startseite der App → Kachelseite |
-| Rot | Liste neu laden | immer zurück zur Kachelseite |
+| 2× Zurück (schnell) | – | immer zurück zur Kachelseite |
+| Rot (falls vorhanden) | Liste neu laden | immer zurück zur Kachelseite |
 | ⏯ ⏩ ⏪ | – | an das Video der Seite (±10 s) |
 
 ## Update des Containers
