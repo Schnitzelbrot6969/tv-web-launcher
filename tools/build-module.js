@@ -13,10 +13,14 @@ const nasUrl = (process.env.NAS_URL || 'http://192.168.1.194:8095').replace(/\/+
 const nasUrls = [nasUrl].concat((process.env.NAS_URL_ALT || 'http://192.168.1.230:8095').split(',').filter(Boolean));
 const adminUrl = process.env.ADMIN_URL || 'http://192.168.1.230:8095';
 // GitHub-Repo des Moduls (wird am TV eingegeben) – bewusst kurz
-const moduleRepo = process.env.MODULE_REPO || 'Schnitzelbrot6969/tv';
+// Modul-Kennung wie TizenBrew sie fuehrt: 'gh/<Benutzer>/<Repo>' oder 'npm/<Paket>'
+const moduleId = process.env.MODULE_ID || 'gh/Schnitzelbrot6969/tv';
+const pkgName = moduleId.indexOf('npm/') === 0 ? moduleId.slice(4) : 'tv-web-launcher';
+// Lokaler Proxy-Dienst auf dem TV (tools/tv-service.js), wird zuerst probiert
+const proxyUrl = 'http://127.0.0.1:8096';
 // Neuere Tizen-Firmware verweigert TizenBrew das Oeffnen von http://<NAS-IP> (ERR_ACCESS_DENIED).
 // Deshalb liefert TizenBrew die Kachelseite selbst lokal aus (127.0.0.1:8081 holt sie von jsDelivr).
-const homeUrl = 'http://127.0.0.1:8081/module/' + encodeURIComponent('gh/' + moduleRepo) + '/tv.html';
+const homeUrl = 'http://127.0.0.1:8081/module/' + encodeURIComponent(moduleId) + '/tv.html';
 const version = process.env.MODULE_VERSION || require(path.join(root, 'package.json')).version;
 const tvJs = fs.readFileSync(path.join(root, 'public', 'tv.js'), 'utf8');
 
@@ -39,13 +43,14 @@ ${tvJs.split('\n').map((l) => (l ? '    ' + l : l)).join('\n')}
 `;
 
 const pkg = {
-  name: 'tv-web-launcher',
+  name: pkgName,
   version,
   description: 'TizenBrew-Modul: Kachel-Launcher fuer beliebige Webseiten (verwaltet auf dem NAS)',
   packageType: 'mods',
   appName: 'Web-Launcher',
   websiteURL: homeUrl,
   main: 'loader.js',
+  serviceFile: 'service.js',
   // Leer lassen: TizenBrew bricht den Start ab, wenn registerKey fuer eine dem TV unbekannte Taste wirft
   // (z. B. Farbtasten bei der Smart Remote). tv.js registriert die Tasten selbst mit try/catch.
   keys: [],
@@ -54,7 +59,9 @@ const pkg = {
 
 fs.mkdirSync(outDir, { recursive: true });
 fs.writeFileSync(path.join(outDir, 'loader.js'), loader);
-const tileHtml = fs.readFileSync(path.join(root, 'public', 'tv.html'), 'utf8').replace('<head>', '<head>\n<script>window.__TVL_NAS = ' + JSON.stringify(nasUrls) + '; window.__TVL_ADMIN = ' + JSON.stringify(adminUrl) + ';</script>');
+const tileHtml = fs.readFileSync(path.join(root, 'public', 'tv.html'), 'utf8').replace('<head>', '<head>\n<script>window.__TVL_NAS = ' + JSON.stringify([proxyUrl].concat(nasUrls)) + '; window.__TVL_ADMIN = ' + JSON.stringify(adminUrl) + ';</script>');
 fs.writeFileSync(path.join(outDir, 'tv.html'), tileHtml);
+const service = fs.readFileSync(path.join(__dirname, 'tv-service.js'), 'utf8').replace('__NAS_LIST__', JSON.stringify(nasUrls));
+fs.writeFileSync(path.join(outDir, 'service.js'), service);
 fs.writeFileSync(path.join(outDir, 'package.json'), JSON.stringify(pkg, null, 2) + '\n');
 console.log('Modul erzeugt in', outDir, '-> websiteURL', pkg.websiteURL);
