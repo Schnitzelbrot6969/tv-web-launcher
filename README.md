@@ -66,7 +66,7 @@ Schritte mit **[Fernbedienung]** macht eine Person am TV (Samsung Smart Remote o
 2. **[Fernbedienung]** Auf der Apps-Seite die Taste **123** (bzw. die Farb-/Zahlen-Taste) drücken → auf der Bildschirm-Zifferntastatur `1 2 3 4 5` eingeben.
 3. **[Fernbedienung]** *Developer Mode* auf **On**, bei *Host PC IP* die IP des PCs eintragen, auf dem der TizenBrew Installer läuft → **OK** → TV neu starten (Power-Taste gedrückt halten, bis das Samsung-Logo kommt).
 4. Am PC **TizenBrew Installer Desktop** starten (github.com/reisxd/TizenBrewInstaller, Releases), TV-IP eingeben, «Install TizenBrew». Für Tizen 7+ fragt er nach einem Samsung-Konto (Signatur). Am TV die Verbindung ggf. mit **Zulassen** bestätigen.
-5. **[Fernbedienung]** TizenBrew öffnen → *Module Manager* → *Add Module* → **GitHub** → `Schnitzelbrot6969/tv-web-launcher-module`.
+5. **[Fernbedienung]** TizenBrew öffnen → *Module Manager* → *Add Module* → **GitHub** → `Schnitzelbrot6969/tv`.
 6. **[Fernbedienung]** Modul «Web-Launcher» starten → Kachelseite. Optional in TizenBrew *Autolaunch* = Web-Launcher.
 
 ## Neue Webseite hinzufügen
@@ -98,7 +98,7 @@ Reihenfolge: Pfeil-Buttons oder am ☰ ziehen. Sicherung: «Liste exportieren» 
   ```bash
   NAS_URL=http://192.168.1.194:8095 node tools/build-module.js
   ```
-  danach im Modul-Repo committen/pushen und den jsDelivr-Cache leeren: `https://purge.jsdelivr.net/gh/Schnitzelbrot6969/tv-web-launcher-module@main/loader.js`. Auf dem TV TizenBrew neu starten.
+  danach im Modul-Repo committen/pushen und den jsDelivr-Cache leeren: `https://purge.jsdelivr.net/gh/Schnitzelbrot6969/tv@main/loader.js`. Auf dem TV TizenBrew neu starten.
 
 ## Lokal entwickeln
 

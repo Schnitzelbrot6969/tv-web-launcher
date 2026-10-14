@@ -70,9 +70,12 @@
   var app = document.getElementById('app');
   var sites = [];
   var index = 0;
-  var BASE = location.origin;
+  // Im TizenBrew-Modul wird diese Seite lokal (127.0.0.1) ausgeliefert; die Liste kommt vom NAS.
+  var NAS = window.__TVL_NAS || [location.origin];
+  var BASE = NAS[0];
+  var HOME = location.href.split('#')[0];
 
-  document.getElementById('adminurl').textContent = BASE + '/admin';
+  document.getElementById('adminurl').textContent = (window.__TVL_ADMIN || BASE) + '/admin';
 
   function fit() {
     var s = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
@@ -116,7 +119,7 @@
       ic.className = 'icon';
       if (s.icon) {
         var img = document.createElement('img');
-        img.src = s.icon;
+        img.src = s.icon.charAt(0) === '/' ? BASE + s.icon : s.icon;
         img.alt = '';
         img.onerror = function () { letterIcon(ic, s.name); };
         ic.appendChild(img);
@@ -147,30 +150,46 @@
     var s = sites[index];
     if (!s) return;
     // Konfiguration an die Zielseite mitgeben (window.name ueberlebt den Domainwechsel)
-    try { window.name = 'tvl:' + JSON.stringify({ base: BASE, current: s.id, sites: sites }); } catch (e) {}
+    try { window.name = 'tvl:' + JSON.stringify({ base: BASE, home: HOME, current: s.id, sites: sites }); } catch (e) {}
     try { sessionStorage.setItem('tvl_last', String(index)); } catch (e) {}
     document.getElementById('loading').classList.add('on');
     location.href = s.url;
   }
 
+  // Liste vom NAS holen; mehrere Adressen nacheinander probieren
   function load() {
-    var xhr = new XMLHttpRequest();
-    xhr.open('GET', '/api/sites?t=' + Date.now());
-    xhr.timeout = 8000;
-    xhr.onload = function () {
-      try {
-        sites = JSON.parse(xhr.responseText).sites || [];
-        document.getElementById('error').style.display = 'none';
-        try { var last = parseInt(sessionStorage.getItem('tvl_last'), 10); if (last >= 0) index = last; } catch (e) {}
-        render();
-      } catch (e) { fail(); }
+    var errors = [];
+    var tryNext = function (i) {
+      if (i >= NAS.length) { fail(errors); return; }
+      var xhr = new XMLHttpRequest();
+      try { xhr.open('GET', NAS[i] + '/api/sites?t=' + Date.now()); } catch (e) { errors.push(NAS[i] + ': ' + e.message); tryNext(i + 1); return; }
+      xhr.timeout = 6000;
+      xhr.onload = function () {
+        try {
+          sites = JSON.parse(xhr.responseText).sites || [];
+          BASE = NAS[i];
+          document.getElementById('error').style.display = 'none';
+          try { var last = parseInt(sessionStorage.getItem('tvl_last'), 10); if (last >= 0) index = last; } catch (e) {}
+          render();
+        } catch (e) { errors.push(NAS[i] + ': HTTP ' + xhr.status); tryNext(i + 1); }
+      };
+      xhr.onerror = function () { errors.push(NAS[i] + ': Netzwerkfehler'); tryNext(i + 1); };
+      xhr.ontimeout = function () { errors.push(NAS[i] + ': Zeitüberschreitung'); tryNext(i + 1); };
+      xhr.send();
     };
-    xhr.onerror = xhr.ontimeout = fail;
-    xhr.send();
+    tryNext(0);
   }
 
-  function fail() {
-    document.getElementById('error').style.display = 'block';
+  function fail(errors) {
+    var el = document.getElementById('error');
+    el.innerHTML = 'Liste konnte nicht vom NAS geladen werden.<br>Neuer Versuch mit OK.';
+    if (errors && errors.length) {
+      var d = document.createElement('div');
+      d.style.cssText = 'font-size:24px;margin-top:24px;opacity:.8';
+      d.textContent = errors.join(' · ');
+      el.appendChild(d);
+    }
+    el.style.display = 'block';
   }
 
   function exitApp() {
