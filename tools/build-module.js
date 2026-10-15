@@ -54,6 +54,7 @@ const pkg = {
   // Leer lassen: TizenBrew bricht den Start ab, wenn registerKey fuer eine dem TV unbekannte Taste wirft
   // (z. B. Farbtasten bei der Smart Remote). tv.js registriert die Tasten selbst mit try/catch.
   keys: [],
+  files: ['loader.js', 'service.js', 'tv.html', 'README.md'],
   license: 'MIT',
 };
 

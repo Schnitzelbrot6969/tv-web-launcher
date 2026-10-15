@@ -504,8 +504,22 @@
 
   // Elemente fuer Hover-Menues informieren
   var lastHover = null;
+  var CLICKABLE = 'button, a[href], input, select, textarea, label, summary, [role="button"], [role="link"], [role="menuitem"], [role="tab"], [role="checkbox"], [onclick], [tabindex]';
+  var hl = { el: null, outline: '', shadow: '' };
+  // Klickbares Element unter dem Zeiger gelb umranden (auch im Shadow-DOM, daher inline)
+  function highlight(target) {
+    if (hl.el === target) return;
+    if (hl.el) { hl.el.style.outline = hl.outline; hl.el.style.boxShadow = hl.shadow; }
+    hl.el = target || null;
+    if (!target) return;
+    hl.outline = target.style.outline; hl.shadow = target.style.boxShadow;
+    target.style.outline = '4px solid #ffc400';
+    target.style.boxShadow = '0 0 18px 4px rgba(255,196,0,.7)';
+  }
   function hoverAt() {
     var el = deepAt(ptr.x, ptr.y);
+    var tgt = el ? closestDeep(el, CLICKABLE) : null;
+    highlight(tgt && tgt !== document.body && tgt !== document.documentElement ? tgt : null);
     if (!el || el === lastHover) return;
     var opts = { bubbles: true, cancelable: true, view: window, clientX: ptr.x, clientY: ptr.y };
     try {
@@ -534,14 +548,24 @@
   var held = { left: false, right: false, up: false, down: false };
   var lastEvt = { left: 0, right: 0, up: 0, down: 0 };
   var anim = null, lastFrame = 0, holdStart = 0, lastHoverAt = 0, sawKeyUp = false;
-  var MIN_SPEED = 0.32;  // px pro ms beim Antippen (~5 px pro Frame)
-  var MAX_SPEED = 1.7;   // px pro ms nach ca. 1 s gedrueckt halten (~27 px pro Frame)
+  var nudge = { x: 0, y: 0 };  // Rest-Strecke eines Antippens (wird weich abgefahren)
+  var TAP_STEP = 52;           // px pro kurzem Antippen
+  var HOLD_DELAY = 220;        // ab dann gilt die Taste als gehalten
+  var MIN_SPEED = 0.9;         // px pro ms zu Beginn des Haltens
+  var MAX_SPEED = 2.8;         // px pro ms nach ca. 1 s Halten
 
   function anyHeld() { return held.left || held.right || held.up || held.down; }
 
   function pointerKeyDown(dir) {
     if (!ensureCursor()) return;
     var now = performance.now();
+    if (!held[dir]) {
+      // Neuer Tastendruck: sofort ein deutlicher Schritt
+      if (dir === 'left') nudge.x -= TAP_STEP;
+      if (dir === 'right') nudge.x += TAP_STEP;
+      if (dir === 'up') nudge.y -= TAP_STEP;
+      if (dir === 'down') nudge.y += TAP_STEP;
+    }
     if (!anyHeld()) holdStart = now;
     held[dir] = true;
     lastEvt[dir] = now;
@@ -561,11 +585,27 @@
     ['left', 'right', 'up', 'down'].forEach(function (d) { if (held[d] && t - lastEvt[d] > timeout) held[d] = false; });
     var hx = (held.right ? 1 : 0) - (held.left ? 1 : 0);
     var hy = (held.down ? 1 : 0) - (held.up ? 1 : 0);
-    if (!hx && !hy) { anim = null; hoverAt(); return; }
-    var held01 = Math.min(1, (t - holdStart) / 900);
-    var speed = MIN_SPEED + (MAX_SPEED - MIN_SPEED) * held01 * held01; // sanft beschleunigen
-    var len = Math.sqrt(hx * hx + hy * hy);
-    var dx = hx / len * speed * dt, dy = hy / len * speed * dt;
+    var hasNudge = Math.abs(nudge.x) > 0.5 || Math.abs(nudge.y) > 0.5;
+    if (!hx && !hy && !hasNudge) { anim = null; hoverAt(); return; }
+    // 1) Antipp-Schritt weich abfahren (ca. 90 ms)
+    var dx = 0, dy = 0;
+    if (hasNudge) {
+      var part = Math.min(1, dt / 90 * 1.6);
+      dx += nudge.x * part; dy += nudge.y * part;
+      nudge.x -= nudge.x * part; nudge.y -= nudge.y * part;
+      if (Math.abs(nudge.x) < 0.5) nudge.x = 0;
+      if (Math.abs(nudge.y) < 0.5) nudge.y = 0;
+    }
+    // 2) Gehaltene Taste: fluessig weitergleiten und beschleunigen
+    var heldFor = t - holdStart;
+    var speed = 0;
+    if ((hx || hy) && heldFor > HOLD_DELAY) {
+      var held01 = Math.min(1, (heldFor - HOLD_DELAY) / 900);
+      speed = MIN_SPEED + (MAX_SPEED - MIN_SPEED) * held01 * held01;
+      var len = Math.sqrt(hx * hx + hy * hy);
+      dx += hx / len * speed * dt; dy += hy / len * speed * dt;
+    }
+    if (!speed) speed = 1.2;
     var W = window.innerWidth, H = window.innerHeight, edge = 4;
     var nx = ptr.x + dx, ny = ptr.y + dy;
     // Am Rand: Seite (oder scrollbaren Bereich unter dem Zeiger) fluessig scrollen
@@ -581,7 +621,7 @@
     ptr.x = Math.max(2, Math.min(W - 2, nx));
     ptr.y = Math.max(2, Math.min(H - 2, ny));
     drawCursor();
-    if (t - lastHoverAt > 120) { lastHoverAt = t; hoverAt(); }
+    if (t - lastHoverAt > 60) { lastHoverAt = t; hoverAt(); }
     anim = requestAnimationFrame(pointerFrame);
   }
 
