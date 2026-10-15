@@ -40,6 +40,20 @@ async function moveTo(page, tx, ty) {
   return false;
 }
 
+// Fein anfahren: einzelne Tipps mit Pause > 400 ms (Schritt bleibt klein)
+async function moveToFine(page, tx, ty) {
+  await moveTo(page, tx, ty);
+  for (let i = 0; i < 30; i++) {
+    const p = await pointerPos(page);
+    const dx = tx - p[0], dy = ty - p[1];
+    if (Math.abs(dx) <= 8 && Math.abs(dy) <= 8) return true;
+    const key = Math.abs(dx) >= Math.abs(dy) ? (dx > 0 ? 'ArrowRight' : 'ArrowLeft') : (dy > 0 ? 'ArrowDown' : 'ArrowUp');
+    await page.keyboard.press(key, { delay: 30 });
+    await sleep(450);
+  }
+  return false;
+}
+
 (async () => {
   const browser = await chromium.launch({ headless: false, channel: 'msedge', args: ['--disable-blink-features=AutomationControlled'] });
   const ctx = await browser.newContext({ viewport: { width: 1920, height: 1080 }, locale: 'de-CH' });
@@ -55,7 +69,7 @@ async function moveTo(page, tx, ty) {
   await page.goto('http://127.0.0.1:8097/fixture.html', { waitUntil: 'domcontentloaded' });
   await sleep(1500);
   const cb = await page.evaluate(() => { const r = document.getElementById('cnt').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
-  await moveTo(page, cb.x, cb.y);
+  await moveToFine(page, cb.x, cb.y);
   await sleep(250);
   const vis = await page.evaluate(() => {
     const c = document.getElementById('tvl-cursor').getBoundingClientRect();
@@ -70,6 +84,20 @@ async function moveTo(page, tx, ty) {
   await sleep(400);
   const n = await page.evaluate(() => document.getElementById('cnt').dataset.n);
   ok('OK mit doppeltem Signal = genau ein Klick', n === '1', { klicks: n });
+  // Eng stehende Links (16 px Zeilenabstand) gezielt treffen
+  let tightOk = 0;
+  for (const i of [3, 4, 8]) {
+    const r = await page.evaluate((i) => { const b = document.getElementById('t' + i).getBoundingClientRect(); return { x: b.left + 20, y: b.top + b.height / 2 }; }, i);
+    await moveToFine(page, r.x, r.y);
+    await sleep(250);
+    const hit = await page.evaluate(() => { const e = window.__TVL_DBG.findClickable(window.__TVL_DBG.ptr.x, window.__TVL_DBG.ptr.y); return e && e.id; });
+    await page.keyboard.press('Enter', { delay: 40 });
+    await sleep(300);
+    const title = await page.title();
+    if (hit === 't' + i && title === 'tight-' + i) tightOk++;
+    else console.log('   eng', i, hit, title);
+  }
+  ok('Eng stehende Links (16 px) einzeln treffbar', tightOk === 3, { getroffen: tightOk + '/3' });
   await page.evaluate((c) => { c.current = 'srf'; window.name = 'tvl:' + JSON.stringify(c); }, cfg);
 
   // ---------- SRF: Cookie-Fenster im Shadow-DOM ----------

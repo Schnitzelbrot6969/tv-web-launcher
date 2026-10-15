@@ -574,7 +574,14 @@
 
   // Klickbares Element zu einem Treffer: echte Bedienelemente (Link, Knopf ...) oder
   // Elemente, die die Seite selbst als klickbar markiert (Mauszeiger "Hand", z. B. div mit onclick)
+  var cpMemo = null; // Zwischenspeicher pro Suche: gleiches Element nicht mehrfach pruefen
   function clickableOf(el) {
+    if (cpMemo && cpMemo.has(el)) return cpMemo.get(el);
+    var res = clickableOfRaw(el);
+    if (cpMemo) cpMemo.set(el, res);
+    return res;
+  }
+  function clickableOfRaw(el) {
     var c = closestDeep(el, clickableSel());
     if (c && !tooBig(c.getBoundingClientRect())) return c;
     var p = null, n = el, depth = 0;
@@ -589,13 +596,13 @@
     return p;
   }
 
-  // Pruefpunkte rund um den Zeiger (Magnet, Radius 32 px), nach Abstand sortiert
+  // Pruefpunkte rund um den Zeiger (Magnet, Radius 24 px), nach Abstand sortiert
   function probes() {
     if (probes.list) return probes.list;
     var list = [];
-    for (var dy = -32; dy <= 32; dy += 8) {
-      for (var dx = -32; dx <= 32; dx += 8) {
-        if (dx * dx + dy * dy <= 32 * 32) list.push([dx, dy, dx * dx + dy * dy]);
+    for (var dy = -24; dy <= 24; dy += 6) {
+      for (var dx = -24; dx <= 24; dx += 6) {
+        if (dx * dx + dy * dy <= 24 * 24) list.push([dx, dy, dx * dx + dy * dy]);
       }
     }
     list.sort(function (a, b) { return a[2] - b[2]; });
@@ -607,6 +614,10 @@
   // Es zaehlen nur Elemente, die an der Stelle wirklich sichtbar oben liegen (Treffertest),
   // damit z. B. ein Cookie-Fenster nicht die Links darunter "durchlaesst".
   function findClickable(x, y) {
+    cpMemo = typeof Map === 'function' ? new Map() : null;
+    try { return findClickableRaw(x, y); } finally { cpMemo = null; }
+  }
+  function findClickableRaw(x, y) {
     var el = deepAt(x, y);
     var direct = el ? clickableOf(el) : null;
     if (direct) return direct;
@@ -616,7 +627,7 @@
       var px = x + PROBES[i][0], py = y + PROBES[i][1];
       if (px < 0 || py < 0 || px >= W || py >= H) continue;
       // weiter entfernte Pruefpunkte koennen kein naeheres Element mehr liefern
-      if (best && Math.sqrt(PROBES[i][2]) - 8 > bestD) break;
+      if (best && Math.sqrt(PROBES[i][2]) - 6 > bestD) break;
       var hit = deepAt(px, py);
       var c = hit ? clickableOf(hit) : null;
       if (!c || seen.indexOf(c) >= 0) continue;
@@ -680,10 +691,17 @@
   var lastEvt = { left: 0, right: 0, up: 0, down: 0 };
   var anim = null, lastFrame = 0, holdStart = 0, lastHoverAt = 0, sawKeyUp = false;
   var nudge = { x: 0, y: 0 };  // Rest-Strecke eines Antippens (wird weich abgefahren)
-  var TAP_STEP = 52;           // px pro kurzem Antippen
+  // Feine Steuerung: einmal antippen = kleiner Schritt (enge Links treffbar),
+  // schnell mehrmals antippen = Schritte werden groesser, gedrueckt halten = startet langsam und wird schneller.
+  var TAP_MIN = 16;            // px beim ersten Antippen
+  var TAP_MAX = 56;            // groesster Schritt bei schnellem Antippen
+  var TAP_STREAK_MS = 400;     // Antippen innerhalb dieser Zeit zaehlt als "schnell hintereinander"
   var HOLD_DELAY = 220;        // ab dann gilt die Taste als gehalten
-  var MIN_SPEED = 0.9;         // px pro ms zu Beginn des Haltens
-  var MAX_SPEED = 2.8;         // px pro ms nach ca. 1 s Halten
+  var MIN_SPEED = 0.3;         // px pro ms zu Beginn des Haltens (fein)
+  var MAX_SPEED = 2.6;         // px pro ms nach ca. 1,3 s Halten
+  var RAMP_MS = 1300;
+  var tap = { dir: '', at: 0, step: TAP_MIN };
+  var repeatSeen = { left: false, right: false, up: false, down: false };
 
   function anyHeld() { return held.left || held.right || held.up || held.down; }
 
@@ -691,11 +709,17 @@
     if (!ensureCursor()) return;
     var now = performance.now();
     if (!held[dir]) {
-      // Neuer Tastendruck: sofort ein deutlicher Schritt
-      if (dir === 'left') nudge.x -= TAP_STEP;
-      if (dir === 'right') nudge.x += TAP_STEP;
-      if (dir === 'up') nudge.y -= TAP_STEP;
-      if (dir === 'down') nudge.y += TAP_STEP;
+      // Neuer Tastendruck: kleiner Schritt; schnell wiederholt in dieselbe Richtung wird er groesser
+      var step = (tap.dir === dir && now - tap.at < TAP_STREAK_MS) ? Math.min(TAP_MAX, Math.round(tap.step * 1.5)) : TAP_MIN;
+      tap.dir = dir; tap.at = now; tap.step = step;
+      repeatSeen[dir] = false;
+      if (dir === 'left') nudge.x -= step;
+      if (dir === 'right') nudge.x += step;
+      if (dir === 'up') nudge.y -= step;
+      if (dir === 'down') nudge.y += step;
+    } else {
+      // Wiederholung der gehaltenen Taste (Fernbedienung sendet ~alle 110 ms)
+      repeatSeen[dir] = true;
     }
     if (!anyHeld()) holdStart = now;
     held[dir] = true;
@@ -706,6 +730,7 @@
   function pointerKeyUp(dir) {
     sawKeyUp = true;
     held[dir] = false;
+    repeatSeen[dir] = false;
   }
 
   function pointerFrame(t) {
@@ -730,8 +755,12 @@
     // 2) Gehaltene Taste: fluessig weitergleiten und beschleunigen
     var heldFor = t - holdStart;
     var speed = 0;
-    if ((hx || hy) && heldFor > HOLD_DELAY) {
-      var held01 = Math.min(1, (heldFor - HOLD_DELAY) / 900);
+    // Gleiten erst, wenn die Taste wirklich gehalten wird: Wiederholungen kommen an,
+    // oder (falls die Fernbedienung keyup sendet) sie ist laenger als HOLD_DELAY unten
+    var reallyHeld = repeatSeen.left || repeatSeen.right || repeatSeen.up || repeatSeen.down || sawKeyUp;
+    if ((hx || hy) && heldFor > HOLD_DELAY && reallyHeld) {
+      tap.dir = '';
+      var held01 = Math.min(1, (heldFor - HOLD_DELAY) / RAMP_MS);
       speed = MIN_SPEED + (MAX_SPEED - MIN_SPEED) * held01 * held01;
       var len = Math.sqrt(hx * hx + hy * hy);
       dx += hx / len * speed * dt; dy += hy / len * speed * dt;
@@ -1022,7 +1051,9 @@
 
   window.addEventListener('keydown', onKey, true);
   // Loslassen der Pfeiltasten beendet die Zeigerbewegung
+  var keyUpLog = 0;
   function onKeyUp(e) {
+    if (keyUpLog++ < 12) remoteLog('keyup', { code: e.keyCode });
     if (e.keyCode === KEY.ENTER) { enter.upSince = true; enter.everUp = true; }
     if (window.__TVL_DISABLE || navMode() !== 'pointer') return;
     var dir = DIRS[e.keyCode];
@@ -1047,6 +1078,19 @@
       t.classList.add('tvl-focus');
     }
   }, true);
+
+  // ---------- Ladezeiten messen (Diagnose: welche Seite ist am TV langsam?) ----------
+  function logPerf() {
+    try {
+      var n = performance.getEntriesByType && performance.getEntriesByType('navigation')[0];
+      var t = performance.timing;
+      var dcl = n ? n.domContentLoadedEventEnd : t.domContentLoadedEventEnd - t.navigationStart;
+      var load = n ? n.loadEventEnd : t.loadEventEnd - t.navigationStart;
+      remoteLog('perf', { dcl: Math.round(dcl), load: Math.round(load) });
+    } catch (e) { /* */ }
+  }
+  if (document.readyState === 'complete') setTimeout(logPerf, 0);
+  else window.addEventListener('load', function () { setTimeout(logPerf, 0); });
 
   // ---------- Start ----------
   function isTilePage() {

@@ -90,10 +90,12 @@ Reihenfolge: Pfeil-Buttons oder am ☰ ziehen. Sicherung: «Liste exportieren» 
 
 | Taste | Kachelseite | Geöffnete Webseite |
 |---|---|---|
-| Pfeile | Kachel wählen | Fokus zum nächsten Link/Button/Feld; ohne Ziel → scrollen |
-| OK | Webseite öffnen | Element anklicken; Textfeld öffnet die Bildschirmtastatur |
-| Zurück | App beenden | Seite zurück; auf der Startseite der App → Kachelseite |
-| 2× Zurück (schnell) | – | immer zurück zur Kachelseite |
+| Pfeile antippen | Kachel wählen | Mauszeiger fein bewegen (16 px); schnell mehrmals antippen = grössere Schritte |
+| Pfeile halten | – | Zeiger gleitet, startet langsam und wird schneller; am Rand wird gescrollt |
+| OK | Webseite öffnen | gelb umrandetes Element anklicken; Textfeld öffnet die Bildschirmtastatur |
+| 2× OK auf Video | – | Vollbild ein/aus |
+| Zurück | App beenden | Seite zurück (verlässt zuerst Vollbild/Textfeld); auf der Startseite der App → Kachelseite |
+| 3× Zurück (schnell) | – | immer zurück zur Kachelseite |
 | Rot (falls vorhanden) | Liste neu laden | immer zurück zur Kachelseite |
 | ⏯ ⏩ ⏪ | – | an das Video der Seite (±10 s) |
 
