@@ -111,7 +111,8 @@
           <div>
             <label for="f-nav">Pfeiltasten-Navigation</label>
             <select id="f-nav">
-              <option value="spatial">Launcher (Fokusrahmen)</option>
+              <option value="pointer">Mauszeiger (Standard)</option>
+              <option value="focus">Fokusrahmen (springt zwischen Links)</option>
               <option value="native">Eigene Navigation der Webseite</option>
             </select>
           </div>
@@ -331,7 +332,7 @@
     $('f-zoom').value = s.zoom || 100;
     $('f-zoom-out').textContent = (s.zoom || 100) + ' %';
     $('f-ua').value = s.userAgent || 'default';
-    $('f-nav').value = s.nav || 'spatial';
+    $('f-nav').value = (s.nav === 'spatial' || !s.nav) ? 'pointer' : s.nav;
     $('f-css').value = s.css || '';
     $('f-js').value = s.js || '';
     $('formtitle').textContent = '„' + s.name + '“ bearbeiten';

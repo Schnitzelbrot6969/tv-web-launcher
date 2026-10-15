@@ -7,7 +7,29 @@
  */
 (function () {
   'use strict';
-  if (window.top !== window) return; // nicht in iframes
+  // In iframes (Cookie-Banner, eingebettete Videoplayer) nur Klicks des Mauszeigers entgegennehmen
+  if (window.top !== window) {
+    if (window.__TVL_FRAME) return;
+    window.__TVL_FRAME = true;
+    window.addEventListener('message', function (ev) {
+      var d = ev.data;
+      if (!d || d.tvl !== 'click') return;
+      var el = document.elementFromPoint(d.x, d.y);
+      if (!el) return;
+      var opts = { bubbles: true, cancelable: true, view: window, clientX: d.x, clientY: d.y };
+      ['pointerdown', 'mousedown', 'pointerup', 'mouseup'].forEach(function (t) {
+        try { el.dispatchEvent(new ((t.indexOf('pointer') === 0 && window.PointerEvent) ? PointerEvent : MouseEvent)(t, opts)); } catch (e) { /* */ }
+      });
+      if (el.tagName === 'IFRAME') {
+        var r = el.getBoundingClientRect();
+        try { el.contentWindow.postMessage({ tvl: 'click', x: d.x - r.left, y: d.y - r.top }, '*'); } catch (e) { /* */ }
+      } else {
+        if (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) el.focus();
+        el.click();
+      }
+    });
+    return;
+  }
   if (window.__TVL_ACTIVE) return;
   window.__TVL_ACTIVE = true;
 
@@ -118,6 +140,7 @@
     'html, body, * { cursor: none !important; }' +
     '.tvl-focus { outline: 4px solid #ffc400 !important; outline-offset: 2px !important;' +
     ' box-shadow: 0 0 0 7px rgba(0,0,0,.65), 0 0 22px 6px rgba(255,196,0,.75) !important; border-radius: 4px; }' +
+    'video:fullscreen, video:-webkit-full-screen { object-fit: contain !important; width: 100% !important; height: 100% !important; max-width: none !important; max-height: none !important; background: #000 !important; }' +
     '#tvl-toast { position: fixed; left: 50%; bottom: 48px; transform: translateX(-50%); z-index: 2147483647;' +
     ' background: rgba(20,20,24,.92); color: #fff; font: 600 26px/1.3 sans-serif; padding: 14px 28px;' +
     ' border-radius: 14px; box-shadow: 0 8px 30px rgba(0,0,0,.5); pointer-events: none; transition: opacity .3s; }';
@@ -419,6 +442,137 @@
     }, 1500);
   }
 
+  // ---------- Mauszeiger-Modus (Standard) ----------
+  // Pfeiltasten bewegen einen sichtbaren Zeiger, gedrueckt halten beschleunigt, OK klickt.
+  // Am Bildschirmrand wird die Seite bzw. der scrollbare Bereich unter dem Zeiger gescrollt.
+  var ptr = { x: 0, y: 0, el: null, speed: 0, lastKey: 0, lastDir: '', lastOk: 0 };
+
+  function navMode() {
+    var n = state.current && state.current.nav;
+    if (n === 'native') return 'native';
+    if (n === 'focus') return 'focus';
+    return 'pointer';
+  }
+
+  function ensureCursor() {
+    if (ptr.el && document.contains(ptr.el)) return ptr.el;
+    if (!document.body) return null;
+    var c = document.createElement('div');
+    c.id = 'tvl-cursor';
+    c.innerHTML = '<svg width="40" height="40" viewBox="0 0 24 24"><path d="M4 2l16 9.5-7 1.3 4.2 7.6-3 1.6-4.2-7.7L4 19z" fill="#fff" stroke="#000" stroke-width="1.6" stroke-linejoin="round"/></svg>';
+    c.style.cssText = 'position:fixed;left:0;top:0;width:40px;height:40px;z-index:2147483647;pointer-events:none;' +
+      'filter:drop-shadow(0 0 4px rgba(0,0,0,.7)) drop-shadow(0 0 10px rgba(255,196,0,.6));transition:opacity .2s;will-change:transform';
+    document.body.appendChild(c);
+    ptr.el = c;
+    if (!ptr.x && !ptr.y) { ptr.x = window.innerWidth / 2; ptr.y = window.innerHeight / 2; }
+    drawCursor();
+    return c;
+  }
+
+  function drawCursor() {
+    if (ptr.el) ptr.el.style.transform = 'translate(' + Math.round(ptr.x - 6) + 'px,' + Math.round(ptr.y - 3) + 'px)';
+  }
+
+  // Elemente fuer Hover-Menues informieren
+  var lastHover = null;
+  function hoverAt() {
+    var el = document.elementFromPoint(ptr.x, ptr.y);
+    if (!el || el === lastHover) return;
+    var opts = { bubbles: true, cancelable: true, view: window, clientX: ptr.x, clientY: ptr.y };
+    try {
+      if (lastHover) lastHover.dispatchEvent(new MouseEvent('mouseout', opts));
+      el.dispatchEvent(new MouseEvent('mouseover', opts));
+      el.dispatchEvent(new MouseEvent('mousemove', opts));
+    } catch (e) { /* */ }
+    lastHover = el;
+  }
+
+  function scrollableAt(x, y, dy, dx) {
+    var el = document.elementFromPoint(x, y);
+    while (el && el !== document.body && el !== document.documentElement) {
+      var cs = window.getComputedStyle(el);
+      if (dy && /(auto|scroll)/.test(cs.overflowY) && el.scrollHeight > el.clientHeight + 4) {
+        if ((dy > 0 && el.scrollTop + el.clientHeight < el.scrollHeight - 1) || (dy < 0 && el.scrollTop > 0)) return el;
+      }
+      if (dx && /(auto|scroll)/.test(cs.overflowX) && el.scrollWidth > el.clientWidth + 4) return el;
+      el = el.parentElement;
+    }
+    return null;
+  }
+
+  function pointerMove(dir, repeat) {
+    if (!ensureCursor()) return;
+    var now = Date.now();
+    // Beschleunigung bei gedrueckter Taste
+    if (repeat || (dir === ptr.lastDir && now - ptr.lastKey < 250)) ptr.speed = Math.min(ptr.speed + 6, 70);
+    else ptr.speed = 22;
+    ptr.lastDir = dir; ptr.lastKey = now;
+    var s = ptr.speed;
+    var dx = dir === 'left' ? -s : dir === 'right' ? s : 0;
+    var dy = dir === 'up' ? -s : dir === 'down' ? s : 0;
+    var W = window.innerWidth, H = window.innerHeight, edge = 6;
+    var nx = ptr.x + dx, ny = ptr.y + dy;
+    // Am Rand: scrollen statt weiterbewegen
+    if ((ny > H - edge && dy > 0) || (ny < edge && dy < 0) || (nx > W - edge && dx > 0) || (nx < edge && dx < 0)) {
+      var amount = Math.max(80, s * 4);
+      var target = scrollableAt(ptr.x, ptr.y, dy, dx);
+      if (target) target.scrollBy({ top: Math.sign(dy) * amount, left: Math.sign(dx) * amount });
+      else window.scrollBy({ top: Math.sign(dy) * amount, left: Math.sign(dx) * amount });
+    }
+    ptr.x = Math.max(2, Math.min(W - 2, nx));
+    ptr.y = Math.max(2, Math.min(H - 2, ny));
+    drawCursor();
+    hoverAt();
+  }
+
+  function videoAt(x, y) {
+    var el = document.elementFromPoint(x, y);
+    if (!el) return null;
+    if (el.tagName === 'VIDEO') return el;
+    // Videoplayer legen oft Bedien-Ebenen ueber das Video
+    var vids = document.querySelectorAll('video');
+    for (var i = 0; i < vids.length; i++) {
+      var r = vids[i].getBoundingClientRect();
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom && r.width > 200) return vids[i];
+    }
+    return null;
+  }
+
+  function toggleFullscreen(v) {
+    var fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+    try {
+      if (fsEl) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+      else (v.requestFullscreen || v.webkitRequestFullscreen || v.webkitEnterFullscreen).call(v);
+    } catch (e) { /* */ }
+  }
+
+  function pointerClick() {
+    if (!ensureCursor()) return;
+    var x = ptr.x, y = ptr.y;
+    var now = Date.now();
+    var v = videoAt(x, y);
+    // Zweimal OK auf einem Video = Vollbild ein/aus
+    if (v && now - ptr.lastOk < 450) { ptr.lastOk = 0; toggleFullscreen(v); return; }
+    ptr.lastOk = now;
+    var el = document.elementFromPoint(x, y);
+    if (!el) return;
+    if (ptr.el) { ptr.el.style.opacity = '.4'; setTimeout(function () { ptr.el.style.opacity = '1'; }, 120); }
+    if (el.tagName === 'IFRAME') {
+      var r = el.getBoundingClientRect();
+      try { el.contentWindow.postMessage({ tvl: 'click', x: x - r.left, y: y - r.top }, '*'); } catch (e) { /* */ }
+      return;
+    }
+    var link = el.closest ? el.closest('a[href]') : null;
+    if (link && link.target && link.target !== '_self' && !/^javascript:/i.test(link.href)) { location.href = link.href; return; }
+    var opts = { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y, button: 0 };
+    ['pointerdown', 'mousedown', 'pointerup', 'mouseup'].forEach(function (t) {
+      try { el.dispatchEvent(new ((t.indexOf('pointer') === 0 && window.PointerEvent) ? PointerEvent : MouseEvent)(t, opts)); } catch (e) { /* */ }
+    });
+    var field = el.closest ? el.closest('input, textarea, select, [contenteditable="true"]') : null;
+    if (field) { field.focus(); try { field.click(); } catch (e) { /* */ } return; }
+    el.click();
+  }
+
   // ---------- Tastatur ----------
   var backTimer = null;
   var DIRS = {};
@@ -435,7 +589,8 @@
     var code = e.keyCode;
     var ae = document.activeElement;
     var editing = isTextField(ae);
-    var nativeNav = state.current && state.current.nav === 'native';
+    var mode = navMode();
+    var nativeNav = mode === 'native';
 
     if (code === KEY.RED) { stop(e); goHome(); return; }
     if (code === KEY.BACK || (code === KEY.ESC && !editing)) {
@@ -454,6 +609,28 @@
     if (nativeNav) return;
 
     var dir = DIRS[code];
+    if (mode === 'pointer') {
+      if (dir) {
+        // Im Textfeld: links/rechts bewegt die Schreibmarke
+        if (editing && (dir === 'left' || dir === 'right')) {
+          try {
+            var l = (ae.value || '').length, p = ae.selectionStart;
+            if (p === null || (dir === 'left' && p > 0) || (dir === 'right' && p < l)) return;
+          } catch (x) { return; }
+        }
+        if (editing) ae.blur();
+        stop(e);
+        pointerMove(dir, e.repeat);
+        return;
+      }
+      if (code === KEY.ENTER) {
+        if (editing) return; // Formular normal absenden
+        stop(e);
+        pointerClick();
+      }
+      return;
+    }
+
     if (dir) {
       if (editing) {
         // Im Textfeld: links/rechts bewegt den Cursor, hoch/runter verlaesst das Feld
@@ -516,12 +693,13 @@
       }).catch(function () { /* auf https-Seiten ggf. blockiert -> window.name genuegt */ });
     }
     setTimeout(function () {
-      if (!current) { var f = firstInView(); if (f) setFocus(f, { scroll: false }); }
+      if (navMode() === 'pointer') ensureCursor();
+      else if (navMode() === 'focus' && !current) { var f = firstInView(); if (f) setFocus(f, { scroll: false }); }
     }, 900);
     try {
       if (!sessionStorage.getItem('tvl_hint')) {
         sessionStorage.setItem('tvl_hint', '1');
-        setTimeout(function () { toast('Zurück = vorherige Seite · 2× Zurück = Kacheln', 3500); }, 1200);
+        setTimeout(function () { toast(navMode() === 'pointer' ? 'Pfeile = Zeiger · OK = Klick · 2× OK auf Video = Vollbild · 2× Zurück = Kacheln' : 'Zurück = vorherige Seite · 2× Zurück = Kacheln', 4500); }, 1200);
       }
     } catch (e) { /* */ }
   }

@@ -13,6 +13,13 @@ test('normalizeSite ergaenzt https, Standardwerte und begrenzt Zoom', () => {
   assert.match(s.id, /^[a-f0-9]{12}$/);
 });
 
+test('normalizeSite: Mauszeiger ist Standard, alter Wert spatial wird zu pointer', () => {
+  assert.strictEqual(normalizeSite({ name: 'A', url: 'a.ch' }).nav, 'pointer');
+  assert.strictEqual(normalizeSite({ name: 'A', url: 'a.ch', nav: 'focus' }).nav, 'focus');
+  assert.strictEqual(normalizeSite({ name: 'A', url: 'a.ch', nav: 'quatsch' }).nav, 'pointer');
+  assert.strictEqual(normalizeSite({}, { name: 'A', url: 'https://a.ch/', nav: 'spatial' }).nav, 'pointer');
+});
+
 test('normalizeSite behaelt id und Felder beim Bearbeiten', () => {
   const before = normalizeSite({ name: 'A', url: 'https://a.ch', css: 'x{}' });
   const after = normalizeSite({ zoom: 150 }, before);

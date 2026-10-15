@@ -60,9 +60,10 @@ function normalizeSite(input, existing) {
   if (input.userAgent !== undefined) {
     s.userAgent = ['default', 'desktop', 'tv'].includes(input.userAgent) ? input.userAgent : 'default';
   }
-  if (input.nav !== undefined) s.nav = input.nav === 'native' ? 'native' : 'spatial';
+  // Navigation am TV: 'pointer' = Mauszeiger (Standard), 'focus' = Fokusrahmen, 'native' = Seite steuert selbst
+  if (input.nav !== undefined) s.nav = ['pointer', 'focus', 'native'].includes(input.nav) ? input.nav : 'pointer';
   if (!s.id) s.id = crypto.randomBytes(6).toString('hex');
-  if (s.nav === undefined) s.nav = 'spatial';
+  if (s.nav === undefined || s.nav === 'spatial') s.nav = 'pointer';
   if (s.zoom === undefined) s.zoom = 100;
   if (s.css === undefined) s.css = '';
   if (s.js === undefined) s.js = '';
