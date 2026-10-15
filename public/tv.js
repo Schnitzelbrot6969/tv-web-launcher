@@ -405,7 +405,15 @@
   function goHome() {
     var home = state.home || (BASE ? BASE + '/tv' : '');
     if (!home) { toast('Startseite unbekannt'); return; }
+    remoteLog('goHome', { home: home, hist: history.length });
+    var from = location.href;
     location.href = home;
+    // Falls die Navigation blockiert wird: im Verlauf bis zur Kachelseite zurueckspringen
+    setTimeout(function () {
+      if (location.href !== from) return;
+      remoteLog('goHome-fallback', { hist: history.length });
+      if (history.length > 2) history.go(-(history.length - 2)); else history.back();
+    }, 1800);
   }
 
   function normUrl(u) {
@@ -473,10 +481,31 @@
     if (ptr.el) ptr.el.style.transform = 'translate(' + Math.round(ptr.x - 6) + 'px,' + Math.round(ptr.y - 3) + 'px)';
   }
 
+  // Element unter dem Zeiger – auch innerhalb von Shadow-DOM (z. B. Cookie-Banner von Usercentrics)
+  function deepAt(x, y) {
+    var el = document.elementFromPoint(x, y);
+    var guard = 0;
+    while (el && el.shadowRoot && guard++ < 10) {
+      var inner = el.shadowRoot.elementFromPoint(x, y);
+      if (!inner || inner === el) break;
+      el = inner;
+    }
+    return el;
+  }
+
+  // Element oder naechster Vorfahre, auch ueber Shadow-Grenzen hinweg
+  function closestDeep(el, sel) {
+    while (el) {
+      if (el.nodeType === 1 && el.matches && el.matches(sel)) return el;
+      el = el.parentElement || (el.getRootNode && el.getRootNode().host) || null;
+    }
+    return null;
+  }
+
   // Elemente fuer Hover-Menues informieren
   var lastHover = null;
   function hoverAt() {
-    var el = document.elementFromPoint(ptr.x, ptr.y);
+    var el = deepAt(ptr.x, ptr.y);
     if (!el || el === lastHover) return;
     var opts = { bubbles: true, cancelable: true, view: window, clientX: ptr.x, clientY: ptr.y };
     try {
@@ -500,33 +529,64 @@
     return null;
   }
 
-  function pointerMove(dir, repeat) {
+  // Fluessige Bewegung: solange eine Pfeiltaste gedrueckt ist, gleitet der Zeiger pro Bildschirm-Frame
+  // weiter und wird dabei schneller. Mehrere Tasten gleichzeitig = schraeg.
+  var held = { left: false, right: false, up: false, down: false };
+  var lastEvt = { left: 0, right: 0, up: 0, down: 0 };
+  var anim = null, lastFrame = 0, holdStart = 0, lastHoverAt = 0, sawKeyUp = false;
+  var MIN_SPEED = 0.32;  // px pro ms beim Antippen (~5 px pro Frame)
+  var MAX_SPEED = 1.7;   // px pro ms nach ca. 1 s gedrueckt halten (~27 px pro Frame)
+
+  function anyHeld() { return held.left || held.right || held.up || held.down; }
+
+  function pointerKeyDown(dir) {
     if (!ensureCursor()) return;
-    var now = Date.now();
-    // Beschleunigung bei gedrueckter Taste
-    if (repeat || (dir === ptr.lastDir && now - ptr.lastKey < 250)) ptr.speed = Math.min(ptr.speed + 6, 70);
-    else ptr.speed = 22;
-    ptr.lastDir = dir; ptr.lastKey = now;
-    var s = ptr.speed;
-    var dx = dir === 'left' ? -s : dir === 'right' ? s : 0;
-    var dy = dir === 'up' ? -s : dir === 'down' ? s : 0;
-    var W = window.innerWidth, H = window.innerHeight, edge = 6;
+    var now = performance.now();
+    if (!anyHeld()) holdStart = now;
+    held[dir] = true;
+    lastEvt[dir] = now;
+    if (!anim) { lastFrame = now; anim = requestAnimationFrame(pointerFrame); }
+  }
+
+  function pointerKeyUp(dir) {
+    sawKeyUp = true;
+    held[dir] = false;
+  }
+
+  function pointerFrame(t) {
+    var dt = Math.min(48, Math.max(1, t - lastFrame));
+    lastFrame = t;
+    // Sicherheit: kommt kein keyup (manche Fernbedienungen), Taste nach Pause in den Wiederholungen loslassen
+    var timeout = sawKeyUp ? 1500 : 650;
+    ['left', 'right', 'up', 'down'].forEach(function (d) { if (held[d] && t - lastEvt[d] > timeout) held[d] = false; });
+    var hx = (held.right ? 1 : 0) - (held.left ? 1 : 0);
+    var hy = (held.down ? 1 : 0) - (held.up ? 1 : 0);
+    if (!hx && !hy) { anim = null; hoverAt(); return; }
+    var held01 = Math.min(1, (t - holdStart) / 900);
+    var speed = MIN_SPEED + (MAX_SPEED - MIN_SPEED) * held01 * held01; // sanft beschleunigen
+    var len = Math.sqrt(hx * hx + hy * hy);
+    var dx = hx / len * speed * dt, dy = hy / len * speed * dt;
+    var W = window.innerWidth, H = window.innerHeight, edge = 4;
     var nx = ptr.x + dx, ny = ptr.y + dy;
-    // Am Rand: scrollen statt weiterbewegen
-    if ((ny > H - edge && dy > 0) || (ny < edge && dy < 0) || (nx > W - edge && dx > 0) || (nx < edge && dx < 0)) {
-      var amount = Math.max(80, s * 4);
-      var target = scrollableAt(ptr.x, ptr.y, dy, dx);
-      if (target) target.scrollBy({ top: Math.sign(dy) * amount, left: Math.sign(dx) * amount });
-      else window.scrollBy({ top: Math.sign(dy) * amount, left: Math.sign(dx) * amount });
+    // Am Rand: Seite (oder scrollbaren Bereich unter dem Zeiger) fluessig scrollen
+    var sx = 0, sy = 0;
+    if (ny > H - edge && hy > 0) sy = Math.max(6, speed * dt * 1.6);
+    if (ny < edge && hy < 0) sy = -Math.max(6, speed * dt * 1.6);
+    if (nx > W - edge && hx > 0) sx = Math.max(6, speed * dt * 1.6);
+    if (nx < edge && hx < 0) sx = -Math.max(6, speed * dt * 1.6);
+    if (sx || sy) {
+      var target = scrollableAt(ptr.x, ptr.y, sy, sx);
+      if (target) target.scrollBy(sx, sy); else window.scrollBy(sx, sy);
     }
     ptr.x = Math.max(2, Math.min(W - 2, nx));
     ptr.y = Math.max(2, Math.min(H - 2, ny));
     drawCursor();
-    hoverAt();
+    if (t - lastHoverAt > 120) { lastHoverAt = t; hoverAt(); }
+    anim = requestAnimationFrame(pointerFrame);
   }
 
   function videoAt(x, y) {
-    var el = document.elementFromPoint(x, y);
+    var el = deepAt(x, y);
     if (!el) return null;
     if (el.tagName === 'VIDEO') return el;
     // Videoplayer legen oft Bedien-Ebenen ueber das Video
@@ -554,28 +614,55 @@
     // Zweimal OK auf einem Video = Vollbild ein/aus
     if (v && now - ptr.lastOk < 450) { ptr.lastOk = 0; toggleFullscreen(v); return; }
     ptr.lastOk = now;
-    var el = document.elementFromPoint(x, y);
+    var el = deepAt(x, y);
     if (!el) return;
     if (ptr.el) { ptr.el.style.opacity = '.4'; setTimeout(function () { ptr.el.style.opacity = '1'; }, 120); }
     if (el.tagName === 'IFRAME') {
       var r = el.getBoundingClientRect();
       try { el.contentWindow.postMessage({ tvl: 'click', x: x - r.left, y: y - r.top }, '*'); } catch (e) { /* */ }
+      remoteLog('click-iframe', { src: (el.src || '').slice(0, 80) });
       return;
     }
-    var link = el.closest ? el.closest('a[href]') : null;
+    var link = closestDeep(el, 'a[href]');
     if (link && link.target && link.target !== '_self' && !/^javascript:/i.test(link.href)) { location.href = link.href; return; }
-    var opts = { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y, button: 0 };
-    ['pointerdown', 'mousedown', 'pointerup', 'mouseup'].forEach(function (t) {
+    // Klickbares Ziel bevorzugen (Text-Span in einem Button o. ae.)
+    var target = closestDeep(el, 'button, a[href], input, select, textarea, label, summary, [role="button"], [role="link"], [role="menuitem"], [role="tab"], [role="checkbox"], [onclick], [tabindex]') || el;
+    remoteLog('click', { tag: target.tagName, text: (target.innerText || target.value || '').trim().slice(0, 40), x: Math.round(x), y: Math.round(y) });
+    var opts = { bubbles: true, cancelable: true, composed: true, view: window, clientX: x, clientY: y, button: 0, buttons: 1 };
+    ['pointerover', 'pointerenter', 'mouseover', 'pointerdown', 'mousedown'].forEach(function (t) {
       try { el.dispatchEvent(new ((t.indexOf('pointer') === 0 && window.PointerEvent) ? PointerEvent : MouseEvent)(t, opts)); } catch (e) { /* */ }
     });
-    var field = el.closest ? el.closest('input, textarea, select, [contenteditable="true"]') : null;
-    if (field) { field.focus(); try { field.click(); } catch (e) { /* */ } return; }
-    el.click();
+    var field = closestDeep(el, 'input, textarea, select, [contenteditable="true"], [contenteditable=""]');
+    if (field) { field.focus(); } else { try { target.focus({ preventScroll: true }); } catch (e) { /* */ } }
+    opts.buttons = 0;
+    ['pointerup', 'mouseup'].forEach(function (t) {
+      try { el.dispatchEvent(new ((t.indexOf('pointer') === 0 && window.PointerEvent) ? PointerEvent : MouseEvent)(t, opts)); } catch (e) { /* */ }
+    });
+    if (field) { try { field.click(); } catch (e) { /* */ } return; }
+    // Echter Klick auf das klickbare Ziel (loest onclick- und Framework-Handler aus)
+    try { target.click(); } catch (e) { try { target.dispatchEvent(new MouseEvent('click', opts)); } catch (x2) { /* */ } }
   }
+
+  // ---------- Diagnose: Ereignisse an das NAS melden (ueber den Dienst auf dem TV) ----------
+  var logCount = 0;
+  function remoteLog(type, data) {
+    if (logCount++ > 120) return;
+    var payload = { t: Date.now(), type: type, url: location.href.slice(0, 120), data: data || {} };
+    var bases = ['http://127.0.0.1:8096', BASE].filter(function (b, i, a) { return b && a.indexOf(b) === i; });
+    bases.forEach(function (b) {
+      try {
+        fetch(b + '/api/log', { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) }).catch(function () {
+          try { new Image().src = b + '/api/log?d=' + encodeURIComponent(JSON.stringify(payload)); } catch (e) { /* */ }
+        });
+      } catch (e) { /* */ }
+    });
+  }
+  window.__TVL_LOG = remoteLog;
 
   // ---------- Tastatur ----------
   var backTimer = null;
   var backCount = 0;
+  var keyLogCount = 0;
   var DIRS = {};
   DIRS[KEY.LEFT] = 'left'; DIRS[KEY.RIGHT] = 'right'; DIRS[KEY.UP] = 'up'; DIRS[KEY.DOWN] = 'down';
 
@@ -593,10 +680,15 @@
     var mode = navMode();
     var nativeNav = mode === 'native';
 
+    if (keyLogCount++ < 40) remoteLog('key', { code: code, key: e.key, mode: mode, editing: editing });
+
     if (code === KEY.RED) { stop(e); goHome(); return; }
-    if (code === KEY.BACK || (code === KEY.ESC && !editing)) {
+    // Zurueck: Tizen liefert je nach Umgebung 10009 oder (in TizenBrew) Escape/27
+    var isBack = code === KEY.BACK || code === KEY.ESC || e.key === 'Escape' || e.key === 'XF86Back' || e.key === 'Back' || e.key === 'GoBack' || e.key === 'BrowserBack';
+    if (isBack) {
       stop(e);
-      if (editing) { ae.blur(); if (current) setFocus(current, { scroll: false }); return; }
+      // Erst ein offenes Textfeld verlassen (Bildschirmtastatur schliessen)
+      if (editing) { try { ae.blur(); } catch (x) { /* */ } if (mode === 'focus' && current) setFocus(current, { scroll: false }); return; }
       // Smart Remote ohne Farbtasten: dreimal schnell Zurueck = Kachelseite.
       // Deshalb wird Zurueck kurz verzoegert ausgefuehrt (1x oder 2x = eine Seite zurueck).
       backCount++;
@@ -623,7 +715,7 @@
         }
         if (editing) ae.blur();
         stop(e);
-        pointerMove(dir, e.repeat);
+        pointerKeyDown(dir);
         return;
       }
       if (code === KEY.ENTER) {
@@ -665,6 +757,12 @@
   }
 
   window.addEventListener('keydown', onKey, true);
+  // Loslassen der Pfeiltasten beendet die Zeigerbewegung
+  window.addEventListener('keyup', function (e) {
+    if (window.__TVL_DISABLE || navMode() !== 'pointer') return;
+    var dir = DIRS[e.keyCode];
+    if (dir) { pointerKeyUp(dir); stop(e); }
+  }, true);
 
   // Fokus, den die Seite selbst setzt (z. B. Suchfeld), sichtbar uebernehmen
   document.addEventListener('focusin', function (ev) {

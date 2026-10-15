@@ -168,6 +168,7 @@
         try {
           sites = JSON.parse(xhr.responseText).sites || [];
           BASE = NAS[i];
+          try { var lg = new XMLHttpRequest(); lg.open('POST', NAS[i] + '/api/log'); lg.send(JSON.stringify({ t: Date.now(), type: 'tile-load', url: location.href, data: { base: BASE, count: sites.length } })); } catch (e2) {}
           document.getElementById('error').style.display = 'none';
           try { var last = parseInt(sessionStorage.getItem('tvl_last'), 10); if (last >= 0) index = last; } catch (e) {}
           render();

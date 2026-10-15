@@ -24,6 +24,25 @@ var server = http.createServer(function (req, res) {
     res.end('{"ok":true}');
     return;
   }
+  // Diagnose-Meldungen von tv.js an das NAS weiterreichen
+  if (/^\/api\/log/.test(req.url) && (req.method === 'POST' || req.method === 'GET')) {
+    var body = '';
+    req.on('data', function (c) { if (body.length < 16384) body += c; });
+    req.on('end', function () {
+      res.writeHead(204, cors({}));
+      res.end();
+      NAS.forEach(function (base) {
+        try {
+          var t = urlLib.parse(base + req.url);
+          var up = http.request({ hostname: t.hostname, port: t.port, path: t.path, method: req.method, headers: { 'content-type': 'application/json' } });
+          up.on('error', function () { /* */ });
+          up.setTimeout(4000, function () { up.abort(); });
+          up.end(body);
+        } catch (e) { /* */ }
+      });
+    });
+    return;
+  }
   // Nur lesende Pfade weiterreichen
   if (!/^\/(api\/sites|icons\/|health)/.test(req.url) || req.method !== 'GET') {
     res.writeHead(404, cors({ 'content-type': 'text/plain' }));

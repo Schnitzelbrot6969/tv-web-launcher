@@ -34,6 +34,7 @@ const MIME = {
 
 let sites = [];
 let writeQueue = Promise.resolve();
+const tvLog = [];
 
 function normalizeUrl(u) {
   u = String(u || '').trim();
@@ -258,6 +259,17 @@ async function handle(req, res) {
   if (m === 'GET' && p === '/tv.js') return serveFile(res, path.join(PUBLIC_DIR, 'tv.js'), { 'Access-Control-Allow-Origin': '*' });
   if (m === 'GET' && p === '/api/sites') return sendJson(res, 200, { sites: publicSites() });
   if (m === 'GET' && p === '/health') return sendJson(res, 200, { ok: true, sites: sites.length });
+
+  // Diagnose vom TV (tv.js -> Dienst auf dem TV -> hier). Nur im Speicher, letzte 300 Eintraege.
+  if (p === '/api/log' && (m === 'POST' || m === 'GET')) {
+    let entry;
+    try {
+      entry = m === 'POST' ? await readBody(req, 16 * 1024) : JSON.parse(url.searchParams.get('d') || '{}');
+    } catch (e) { entry = { raw: true }; }
+    tvLog.push(Object.assign({ received: new Date().toISOString() }, entry));
+    if (tvLog.length > 300) tvLog.splice(0, tvLog.length - 300);
+    return send(res, 204, '', { 'Access-Control-Allow-Origin': '*' });
+  }
   if (m === 'GET' && p.startsWith('/icons/')) {
     return serveFile(res, path.join(ICON_DIR, path.basename(p)), { 'Cache-Control': 'max-age=86400', 'Access-Control-Allow-Origin': '*' });
   }
@@ -269,6 +281,7 @@ async function handle(req, res) {
   if (m === 'GET' && (p === '/admin' || p === '/admin/')) return serveFile(res, path.join(PUBLIC_DIR, 'admin.html'));
 
   if (p === '/api/admin/sites' && m === 'GET') return sendJson(res, 200, { sites });
+  if (p === '/api/admin/log' && m === 'GET') return sendJson(res, 200, { log: tvLog });
 
   if (p === '/api/admin/sites' && m === 'POST') {
     const body = await readBody(req);

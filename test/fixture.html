@@ -9,4 +9,7 @@
 <div class="long">langer Text ohne Links</div>
 <a href="#end" id="end">Ende</a>
 <video id="v" width="320" height="180" src="data:video/mp4;base64,"></video>
+<div id="shadowhost" style="position:fixed;right:40px;top:40px"></div>
+<script>const sr=document.getElementById("shadowhost").attachShadow({mode:"open"});sr.innerHTML='<button id="sbtn" style="padding:20px">Alle akzeptieren</button>';sr.getElementById("sbtn").addEventListener("click",()=>{document.title="shadow-clicked"});</script>
+<input id="txt" style="position:fixed;left:40px;bottom:40px" placeholder="Feld">
 </body></html>
