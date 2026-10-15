@@ -27,7 +27,7 @@ Admin-Seite (Browser) ──► sites.json auf dem NAS ──► Kachelseite /tv
 | Sprache | Node.js 20, **ohne npm-Abhängigkeiten** | kein Build-Schritt, kleines Image (`node:20-alpine`) |
 | Port | `8095` (Variable `PORT`) | Vorgabe |
 | Daten | `/data/sites.json`, `/data/icons/` im Volume `/volume1/docker/tv-launcher/data` | übersteht Updates |
-| Admin-Schutz | HTTP-Basic-Auth, Passwort aus `ADMIN_PASSWORD` | einfach, funktioniert auf jedem Gerät |
+| Admin-Schutz | HTTP-Basic-Auth, Passwort aus `ADMIN_PASSWORD`; danach «gemerkter Browser» (zufälliger 256-Bit-Schlüssel als HttpOnly/SameSite=Strict-Cookie, 1 Jahr, auf dem NAS nur der SHA-256-Hash in `data/devices.json`) | nur einmal pro Browser anmelden; fremde Geräte brauchen weiter das Passwort; Browser lassen sich in der Admin-Seite wieder entfernen; ändernde Aufrufe von fremden Webseiten (CSRF) werden abgelehnt |
 | TV-Seiten | ohne Login | Fernbedienung |
 | Code im Container | wird beim Start von GitHub geladen | Update = Container neu starten, kein eigenes Image |
 | TizenBrew-Variante | **A** – ein Modul für alle Webseiten | TizenBrew führt das Modul-Skript bei *jedem* neuen JavaScript-Kontext aus (`Runtime.executionContextCreated` in `service-nextgen/service/utils/debugger.js`), also auch nach Wechsel auf fremde Domains |

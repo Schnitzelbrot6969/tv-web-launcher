@@ -15,6 +15,8 @@ const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const SITES_FILE = path.join(DATA_DIR, 'sites.json');
 const ICON_DIR = path.join(DATA_DIR, 'icons');
 const EXAMPLE_FILE = path.join(__dirname, '..', 'sites.example.json');
+// Gemerkte Browser (Admin ohne Passwort-Abfrage), nur Hashes der Schluessel
+const DEVICES_FILE = path.join(DATA_DIR, 'devices.json');
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -209,8 +211,79 @@ async function readBody(req, limit) {
   }
 }
 
-function isAuthorized(req) {
-  if (!ADMIN_PASSWORD) return true; // ohne Passwort ungeschuetzt (nur fuer lokale Tests)
+// ---------- Gemerkte Geraete (Admin ohne Passwort-Abfrage) ----------
+// Ein Browser bekommt nach einer Anmeldung einen zufaelligen 256-Bit-Schluessel als Cookie
+// (HttpOnly, SameSite=Strict, 1 Jahr). Gespeichert wird nur dessen SHA-256-Hash.
+// Gegenueber einer Freigabe nach IP-Adresse ist das nicht faelschbar und unabhaengig von DHCP.
+const DEVICE_COOKIE = 'tvl_dev';
+const DEVICE_MAX_AGE = 365 * 24 * 3600;
+let devices = [];
+const enrollCodes = new Map(); // Einmal-Code -> Ablaufzeit (nur im Speicher, 10 Minuten)
+
+function sha256(s) {
+  return crypto.createHash('sha256').update(String(s)).digest('hex');
+}
+
+function cookieValue(req, name) {
+  const parts = String(req.headers.cookie || '').split(';');
+  for (const p of parts) {
+    const i = p.indexOf('=');
+    if (i > 0 && p.slice(0, i).trim() === name) return p.slice(i + 1).trim();
+  }
+  return '';
+}
+
+async function loadDevices() {
+  try {
+    const j = JSON.parse(await fsp.readFile(DEVICES_FILE, 'utf8'));
+    devices = Array.isArray(j.devices) ? j.devices.filter((d) => d && /^[0-9a-f]{64}$/.test(d.hash)) : [];
+  } catch (e) {
+    devices = [];
+  }
+}
+
+function saveDevices() {
+  writeQueue = writeQueue.then(async () => {
+    await fsp.mkdir(DATA_DIR, { recursive: true });
+    const tmp = DEVICES_FILE + '.tmp';
+    await fsp.writeFile(tmp, JSON.stringify({ devices }, null, 2), { mode: 0o600 });
+    await fsp.rename(tmp, DEVICES_FILE);
+  }).catch((e) => console.error('Geraete speichern fehlgeschlagen', e));
+  return writeQueue;
+}
+
+function deviceFor(req) {
+  const tok = cookieValue(req, DEVICE_COOKIE);
+  if (!/^[A-Za-z0-9_-]{43}$/.test(tok)) return null;
+  const h = Buffer.from(sha256(tok), 'hex');
+  for (const d of devices) {
+    if (crypto.timingSafeEqual(h, Buffer.from(d.hash, 'hex'))) return d;
+  }
+  return null;
+}
+
+// Neues Geraet anlegen und den Schluessel als Cookie setzen
+function rememberDevice(req, res, label) {
+  const tok = crypto.randomBytes(32).toString('base64url');
+  const d = {
+    id: crypto.randomBytes(6).toString('hex'),
+    hash: sha256(tok),
+    label: String(label || req.headers['user-agent'] || 'Browser').slice(0, 120),
+    ip: clientIp(req),
+    created: new Date().toISOString(),
+    lastSeen: new Date().toISOString(),
+  };
+  devices.push(d);
+  saveDevices();
+  res.setHeader('Set-Cookie', `${DEVICE_COOKIE}=${tok}; Max-Age=${DEVICE_MAX_AGE}; Path=/; HttpOnly; SameSite=Strict`);
+  return d;
+}
+
+function clientIp(req) {
+  return String((req.socket && req.socket.remoteAddress) || '').replace(/^::ffff:/, '');
+}
+
+function basicAuthOk(req) {
   const h = req.headers.authorization || '';
   if (!h.startsWith('Basic ')) return false;
   const decoded = Buffer.from(h.slice(6), 'base64').toString('utf8');
@@ -218,6 +291,26 @@ function isAuthorized(req) {
   const a = crypto.createHash('sha256').update(decoded.slice(0, i) + '\0' + decoded.slice(i + 1)).digest();
   const b = crypto.createHash('sha256').update(ADMIN_USER + '\0' + ADMIN_PASSWORD).digest();
   return i >= 0 && crypto.timingSafeEqual(a, b);
+}
+
+function isAuthorized(req) {
+  if (!ADMIN_PASSWORD) return true; // ohne Passwort ungeschuetzt (nur fuer lokale Tests)
+  const d = deviceFor(req);
+  if (d) {
+    req.tvlDevice = d;
+    // "zuletzt gesehen" hoechstens stuendlich speichern
+    if (Date.now() - Date.parse(d.lastSeen || 0) > 3600 * 1000) { d.lastSeen = new Date().toISOString(); d.ip = clientIp(req); saveDevices(); }
+    return true;
+  }
+  if (basicAuthOk(req)) { req.tvlBasic = true; return true; }
+  return false;
+}
+
+// Schutz gegen Anfragen fremder Webseiten (CSRF): aendernde Admin-Aufrufe nur von der eigenen Seite
+function sameOrigin(req) {
+  const o = req.headers.origin;
+  if (!o) return true; // curl, Skripte, aeltere Browser bei same-origin
+  return o === 'http://' + req.headers.host || o === 'https://' + req.headers.host;
 }
 
 function requireAuth(req, res) {
@@ -274,14 +367,57 @@ async function handle(req, res) {
     return serveFile(res, path.join(ICON_DIR, path.basename(p)), { 'Cache-Control': 'max-age=86400', 'Access-Control-Allow-Origin': '*' });
   }
 
-  // --- Admin (Passwort) ---
+  // --- Einmal-Link: Browser merken ohne Passwort-Eingabe ---
+  if (m === 'GET' && p === '/admin/enroll') {
+    const code = url.searchParams.get('code') || '';
+    const key = sha256(code);
+    const exp = enrollCodes.get(key);
+    for (const [k, t] of enrollCodes) if (t < Date.now()) enrollCodes.delete(k);
+    if (!code || !exp || exp < Date.now()) return send(res, 403, 'Link ungueltig oder abgelaufen', { 'Content-Type': 'text/plain; charset=utf-8' });
+    enrollCodes.delete(key);
+    rememberDevice(req, res);
+    return send(res, 302, '', { Location: '/admin' });
+  }
+
+  // --- Admin (gemerkter Browser oder Passwort) ---
   if (p === '/admin' || p === '/admin/' || p.startsWith('/api/admin/')) {
     if (!requireAuth(req, res)) return;
+    if (m !== 'GET' && !sameOrigin(req)) throw httpError(403, 'Fremde Herkunft abgelehnt');
   }
-  if (m === 'GET' && (p === '/admin' || p === '/admin/')) return serveFile(res, path.join(PUBLIC_DIR, 'admin.html'));
+  if (m === 'GET' && (p === '/admin' || p === '/admin/')) {
+    // Wer sich mit Passwort anmeldet, wird in diesem Browser gemerkt: danach keine Abfrage mehr
+    if (req.tvlBasic && !req.tvlDevice) rememberDevice(req, res);
+    return serveFile(res, path.join(PUBLIC_DIR, 'admin.html'));
+  }
 
   if (p === '/api/admin/sites' && m === 'GET') return sendJson(res, 200, { sites });
   if (p === '/api/admin/log' && m === 'GET') return sendJson(res, 200, { log: tvLog });
+
+  // --- Gemerkte Geraete ---
+  if (p === '/api/admin/devices' && m === 'GET') {
+    const cur = req.tvlDevice ? req.tvlDevice.id : null;
+    return sendJson(res, 200, { devices: devices.map((d) => ({ id: d.id, label: d.label, ip: d.ip, created: d.created, lastSeen: d.lastSeen, current: d.id === cur })), current: cur });
+  }
+  // Diesen Browser merken (kein Passwort mehr)
+  if (p === '/api/admin/devices/me' && m === 'POST') {
+    const d = req.tvlDevice || rememberDevice(req, res);
+    return sendJson(res, 200, { id: d.id });
+  }
+  // Einmal-Link erzeugen, mit dem ein Browser ohne Passwort-Eingabe gemerkt wird (10 Minuten, einmalig)
+  if (p === '/api/admin/devices/enroll' && m === 'POST') {
+    const code = crypto.randomBytes(24).toString('base64url');
+    enrollCodes.set(sha256(code), Date.now() + 10 * 60 * 1000);
+    return sendJson(res, 200, { url: '/admin/enroll?code=' + code, expiresInSec: 600 });
+  }
+  const devMatch = p.match(/^\/api\/admin\/devices\/([0-9a-f]{12})$/);
+  if (devMatch && m === 'DELETE') {
+    const before = devices.length;
+    devices = devices.filter((d) => d.id !== devMatch[1]);
+    if (devices.length === before) throw httpError(404, 'Geraet nicht gefunden');
+    await saveDevices();
+    if (req.tvlDevice && req.tvlDevice.id === devMatch[1]) res.setHeader('Set-Cookie', DEVICE_COOKIE + '=; Max-Age=0; Path=/; HttpOnly; SameSite=Strict');
+    return sendJson(res, 200, { ok: true });
+  }
 
   if (p === '/api/admin/sites' && m === 'POST') {
     const body = await readBody(req);
@@ -367,6 +503,7 @@ async function handle(req, res) {
 
 async function main() {
   await loadSites();
+  await loadDevices();
   const server = http.createServer((req, res) => {
     handle(req, res).catch((e) => {
       const status = e.status || 500;

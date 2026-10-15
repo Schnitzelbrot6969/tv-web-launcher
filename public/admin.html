@@ -147,6 +147,12 @@
   </section>
 
   <section class="card">
+    <h2>Gemerkte Browser</h2>
+    <p class="muted">Diese Browser öffnen den Admin ohne Passwort-Abfrage (sicherer Schlüssel im Browser, 1 Jahr gültig). Ein fremder Browser braucht weiterhin das Passwort.</p>
+    <ul id="devices"></ul>
+  </section>
+
+  <section class="card">
     <h2>Info</h2>
     <p class="muted">TV-Kachelseite: <code id="tvurl"></code><br>
     TV-Skript: <code id="tvjs"></code><br>
@@ -163,6 +169,32 @@
   var editing = null;
 
   $('tvurl').textContent = location.origin + '/tv';
+
+  // Gemerkte Browser anzeigen und entfernen
+  function loadDevices() {
+    api('GET', '/api/admin/devices').then(function (j) {
+      var ul = $('devices');
+      ul.textContent = '';
+      j.devices.forEach(function (d) {
+        var li = document.createElement('li');
+        var txt = document.createElement('span');
+        var ua = /Edg\//.test(d.label) ? 'Edge' : /Chrome\//.test(d.label) ? 'Chrome' : /Firefox\//.test(d.label) ? 'Firefox' : 'Browser';
+        txt.textContent = (d.current ? '★ Dieser Browser – ' : '') + ua + ' · ' + (d.ip || '?') + ' · seit ' + String(d.created).slice(0, 10) + ' ';
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = 'Entfernen';
+        b.addEventListener('click', function () {
+          if (!confirm('Diesen Browser vergessen? Er braucht danach wieder das Passwort.')) return;
+          api('DELETE', '/api/admin/devices/' + d.id).then(function () { toast('Browser entfernt'); loadDevices(); }).catch(function (e) { toast(e.message, true); });
+        });
+        li.appendChild(txt);
+        li.appendChild(b);
+        ul.appendChild(li);
+      });
+      if (!j.devices.length) ul.textContent = 'Noch keiner.';
+    }).catch(function () { /* */ });
+  }
+  loadDevices();
   $('tvjs').textContent = location.origin + '/tv.js';
 
   var toastT;
