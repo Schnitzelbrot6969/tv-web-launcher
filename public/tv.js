@@ -575,6 +575,7 @@
 
   // ---------- Tastatur ----------
   var backTimer = null;
+  var backCount = 0;
   var DIRS = {};
   DIRS[KEY.LEFT] = 'left'; DIRS[KEY.RIGHT] = 'right'; DIRS[KEY.UP] = 'up'; DIRS[KEY.DOWN] = 'down';
 
@@ -596,10 +597,12 @@
     if (code === KEY.BACK || (code === KEY.ESC && !editing)) {
       stop(e);
       if (editing) { ae.blur(); if (current) setFocus(current, { scroll: false }); return; }
-      // Smart Remote ohne Farbtasten: zweimal schnell Zurueck = Kachelseite.
-      // Deshalb wird ein einzelnes Zurueck kurz verzoegert ausgefuehrt.
-      if (backTimer) { clearTimeout(backTimer); backTimer = null; goHome(); return; }
-      backTimer = setTimeout(function () { backTimer = null; goBack(); }, 450);
+      // Smart Remote ohne Farbtasten: dreimal schnell Zurueck = Kachelseite.
+      // Deshalb wird Zurueck kurz verzoegert ausgefuehrt (1x oder 2x = eine Seite zurueck).
+      backCount++;
+      clearTimeout(backTimer);
+      if (backCount >= 3) { backCount = 0; backTimer = null; goHome(); return; }
+      backTimer = setTimeout(function () { backTimer = null; backCount = 0; goBack(); }, 550);
       return;
     }
     if (code === KEY.PLAY || code === KEY.PAUSE || code === KEY.PLAYPAUSE || code === KEY.STOP || code === KEY.FF || code === KEY.RW) {
@@ -699,7 +702,7 @@
     try {
       if (!sessionStorage.getItem('tvl_hint')) {
         sessionStorage.setItem('tvl_hint', '1');
-        setTimeout(function () { toast(navMode() === 'pointer' ? 'Pfeile = Zeiger · OK = Klick · 2× OK auf Video = Vollbild · 2× Zurück = Kacheln' : 'Zurück = vorherige Seite · 2× Zurück = Kacheln', 4500); }, 1200);
+        setTimeout(function () { toast(navMode() === 'pointer' ? 'Pfeile = Zeiger · OK = Klick · 2× OK auf Video = Vollbild · 3× Zurück = Kacheln' : 'Zurück = vorherige Seite · 3× Zurück = Kacheln', 4500); }, 1200);
       }
     } catch (e) { /* */ }
   }
