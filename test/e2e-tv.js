@@ -8,8 +8,9 @@ const loader = fs.readFileSync(process.argv[3], 'utf8');
 
 const HOME = 'http://127.0.0.1:8097/fixture.html?HOME=1';
 const cfg = { base: 'http://127.0.0.1:8097', home: HOME, current: 'srf', sites: [
-  { id: 'srf', name: 'SRF', url: 'https://www.srf.ch/news', zoom: 100, nav: 'pointer', css: '', js: '' },
-  { id: 'w3', name: 'W3', url: 'https://www.w3schools.com/html/html5_video.asp', zoom: 100, nav: 'pointer', css: '', js: '' },
+  { id: 'srf', name: 'SRF', url: 'https://www.srf.ch/news', zoom: 125, nav: 'pointer', css: '', js: '' },
+  { id: 'w3', name: 'W3', url: 'https://www.w3schools.com/html/html5_video.asp', zoom: 125, nav: 'pointer', css: '', js: '' },
+  { id: 'fx', name: 'FX', url: 'http://127.0.0.1:8097/fixture.html', zoom: 150, nav: 'pointer', css: '', js: '' },
 ] };
 
 const results = [];
@@ -48,6 +49,28 @@ async function moveTo(page, tx, ty) {
   // Startseite (wie Kachelseite) setzt window.name
   await page.goto(HOME);
   await page.evaluate((c) => { window.name = 'tvl:' + JSON.stringify(c); }, cfg);
+
+  // ---------- Zoom 150 %: sichtbarer Zeiger = Klickpunkt; doppeltes OK-Signal der Smart Remote = ein Klick ----------
+  await page.evaluate((c) => { c.current = 'fx'; window.name = 'tvl:' + JSON.stringify(c); }, cfg);
+  await page.goto('http://127.0.0.1:8097/fixture.html', { waitUntil: 'domcontentloaded' });
+  await sleep(1500);
+  const cb = await page.evaluate(() => { const r = document.getElementById('cnt').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+  await moveTo(page, cb.x, cb.y);
+  await sleep(250);
+  const vis = await page.evaluate(() => {
+    const c = document.getElementById('tvl-cursor').getBoundingClientRect();
+    const tip = [c.left + 6, c.top + 3];
+    const e = window.__TVL_DBG.findClickable(window.__TVL_DBG.ptr.x, window.__TVL_DBG.ptr.y);
+    return { tip: tip.map(Math.round), ptr: [Math.round(window.__TVL_DBG.ptr.x), Math.round(window.__TVL_DBG.ptr.y)], ziel: e && e.id };
+  });
+  ok('Zoom 150 %: sichtbare Zeigerspitze = Klickpunkt', Math.abs(vis.tip[0] - vis.ptr[0]) < 3 && Math.abs(vis.tip[1] - vis.ptr[1]) < 3 && vis.ziel === 'cnt', vis);
+  await page.keyboard.down('Enter'); await sleep(200);
+  await page.keyboard.down('Enter'); await sleep(60);
+  await page.keyboard.up('Enter');
+  await sleep(400);
+  const n = await page.evaluate(() => document.getElementById('cnt').dataset.n);
+  ok('OK mit doppeltem Signal = genau ein Klick', n === '1', { klicks: n });
+  await page.evaluate((c) => { c.current = 'srf'; window.name = 'tvl:' + JSON.stringify(c); }, cfg);
 
   // ---------- SRF: Cookie-Fenster im Shadow-DOM ----------
   await page.goto('https://www.srf.ch/news', { waitUntil: 'domcontentloaded' });
@@ -96,13 +119,13 @@ async function moveTo(page, tx, ty) {
   for (let i = 0; i < 8; i++) { await sleep(60); samples.push((await pointerPos(page))[1]); }
   await page.keyboard.up('ArrowDown');
   const steps = samples.map((v, i) => v - (i ? samples[i - 1] : p0[1]));
-  ok('Halten bewegt fluessig (jedes 60ms-Intervall > 0)', steps.slice(3).every((s) => s > 0 || samples[samples.length - 1] >= 1070), { steps });
+  ok('Halten bewegt fluessig (jedes 60ms-Intervall > 0)', steps.slice(3).every((s) => s > 0 || samples[samples.length - 1] >= 1070), { steps, p0, last: samples[samples.length - 1], url: page.url().slice(0, 60) });
 
   // ---------- Link klicken, Zurueck, 3x Zurueck ----------
   await page.evaluate(() => window.scrollTo(0, 0));
   await sleep(300);
   const link = await page.evaluate(() => {
-    const a = [...document.querySelectorAll('a[href*="/news/"]')].find((x) => { const r = x.getBoundingClientRect(); return r.width > 80 && r.height > 15 && r.top > 300 && r.top < 900; });
+    const a = [...document.querySelectorAll('a[href*="/news/"]')].find((x) => { const r = x.getBoundingClientRect(); return r.width > 80 && r.height > 15 && r.top > 250 && r.top < 900; });
     if (!a) return null;
     const r = a.getBoundingClientRect();
     return { x: r.left + Math.min(40, r.width / 2), y: r.top + r.height / 2, href: a.href };

@@ -34,6 +34,7 @@ const loader = `/*
   function run() {
     if (!document.documentElement) { setTimeout(run, 15); return; }
     if (!window.__TVL_BASE) window.__TVL_BASE = BASE;
+    window.__TVL_VERSION = ${JSON.stringify(version)};
     if (!window.__TVL_HOME) window.__TVL_HOME = ${JSON.stringify(homeUrl)};
 ${tvJs.split('\n').map((l) => (l ? '    ' + l : l)).join('\n')}
   }

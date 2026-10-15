@@ -1,6 +1,6 @@
 {
   "name": "tv-web-launcher",
-  "version": "1.4.2",
+  "version": "1.4.3",
   "description": "Webseiten als Apps auf dem Samsung TV (TizenBrew) – verwaltet ueber eine Weboberflaeche auf dem NAS",
   "main": "src/server.js",
   "private": true,

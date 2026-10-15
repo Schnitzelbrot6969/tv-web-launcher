@@ -34,9 +34,10 @@ function ok(site, name, pass, info) {
     const page = await ctx.newPage();
     try {
       await page.goto(HOME);
-      await page.evaluate((u) => {
-        window.name = 'tvl:' + JSON.stringify({ base: 'http://127.0.0.1:8097', home: location.href, current: 's', sites: [{ id: 's', name: 'S', url: u, nav: 'pointer' }] });
-      }, url);
+      // Zoom wie in den NAS-Einstellungen (Standard 125 %)
+      await page.evaluate(([u, z]) => {
+        window.name = 'tvl:' + JSON.stringify({ base: 'http://127.0.0.1:8097', home: location.href, current: 's', sites: [{ id: 's', name: 'S', url: u, nav: 'pointer', zoom: z }] });
+      }, [url, +(process.env.ZOOM || 125)]);
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
       await sleep(7000);
       ok(site, 'Zeiger sichtbar', !!(await pointerPos(page)));

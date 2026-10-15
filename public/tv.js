@@ -168,6 +168,7 @@
     '.tvl-pfs-anc { transform: none !important; filter: none !important; perspective: none !important; contain: none !important;' +
     ' will-change: auto !important; z-index: 2147483646 !important; overflow: visible !important; }' +
     'html.tvl-pfs-on, html.tvl-pfs-on body { overflow: hidden !important; }' +
+    'html.tvl-pfs-on body { zoom: 1 !important; }' +
     '#tvl-toast { position: fixed; left: 50%; bottom: 48px; transform: translateX(-50%); z-index: 2147483647;' +
     ' background: rgba(20,20,24,.92); color: #fff; font: 600 26px/1.3 sans-serif; padding: 14px 28px;' +
     ' border-radius: 14px; box-shadow: 0 8px 30px rgba(0,0,0,.5); pointer-events: none; transition: opacity .3s; }';
@@ -187,7 +188,10 @@
     addStyle('tvl-base-style', baseCss);
     if (!s) return;
     var zoom = parseInt(s.zoom, 10) || 100;
-    if (document.documentElement) document.documentElement.style.zoom = zoom !== 100 ? String(zoom / 100) : '';
+    // Zoom nur auf <body>: Zeiger und Hinweis haengen direkt an <html> und bleiben unskaliert,
+    // sonst steht der sichtbare Zeiger woanders als der Klickpunkt (Zoom 125 % = 25 % daneben)
+    if (document.documentElement && document.documentElement.style.zoom) document.documentElement.style.zoom = '';
+    addStyle('tvl-zoom-style', zoom !== 100 ? 'body { zoom: ' + (zoom / 100) + ' !important; }' : '');
     if (s.css) addStyle('tvl-site-style', s.css);
     if (s.js && !window.__TVL_SITE_JS_DONE) {
       window.__TVL_SITE_JS_DONE = true;
@@ -202,7 +206,7 @@
     if (!t) {
       t = document.createElement('div');
       t.id = 'tvl-toast';
-      document.body.appendChild(t);
+      document.documentElement.appendChild(t);
     }
     t.textContent = msg;
     t.style.opacity = '1';
@@ -529,7 +533,7 @@
     c.appendChild(svg);
     c.style.cssText = 'position:fixed;left:0;top:0;width:40px;height:40px;z-index:2147483647;pointer-events:none;' +
       'filter:drop-shadow(0 0 4px rgba(0,0,0,.7)) drop-shadow(0 0 10px rgba(255,196,0,.6));transition:opacity .2s;will-change:transform';
-    document.body.appendChild(c);
+    document.documentElement.appendChild(c);
     ptr.el = c;
     if (!ptr.x && !ptr.y) { ptr.x = window.innerWidth / 2; ptr.y = window.innerHeight / 2; }
     drawCursor();
@@ -872,7 +876,7 @@
     if (ptr.el) { ptr.el.style.opacity = '.4'; setTimeout(function () { ptr.el.style.opacity = '1'; }, 120); }
     if (v) {
       if (pendingClick) { clearTimeout(pendingClick); pendingClick = null; toggleFullscreen(v); return; }
-      pendingClick = setTimeout(function () { pendingClick = null; clickAt(x, y); }, 400);
+      pendingClick = setTimeout(function () { pendingClick = null; clickAt(x, y); }, 550);
       return;
     }
     clickAt(x, y);
@@ -894,7 +898,7 @@
   var logCount = 0;
   function remoteLog(type, data) {
     if (logCount++ > 120) return;
-    var payload = { t: Date.now(), type: type, url: location.href.slice(0, 120), data: data || {} };
+    var payload = { t: Date.now(), v: window.__TVL_VERSION || '', type: type, url: location.href.slice(0, 120), data: data || {} };
     var bases = ['http://127.0.0.1:8096', BASE].filter(function (b, i, a) { return b && a.indexOf(b) === i; });
     bases.forEach(function (b) {
       try {
@@ -918,6 +922,16 @@
     e.preventDefault();
     e.stopPropagation();
     if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+  }
+
+  // Die Smart Remote schickt bei einem OK-Druck oft zwei keydown (zweites nach ~200 ms ohne keyup dazwischen)
+  var enter = { lastDown: 0, upSince: true, everUp: false };
+  function isEnterRepeat(e) {
+    var now = Date.now();
+    var gap = now - enter.lastDown;
+    var rep = !!e.repeat || (enter.everUp ? (!enter.upSince && gap < 600) : gap < 260);
+    if (!rep) { enter.lastDown = now; enter.upSince = false; }
+    return rep;
   }
 
   function onKey(e) {
@@ -969,6 +983,7 @@
       if (code === KEY.ENTER) {
         if (editing) return; // Formular normal absenden
         stop(e);
+        if (isEnterRepeat(e)) return;
         pointerClick();
       }
       return;
@@ -996,6 +1011,7 @@
       if (editing) return; // Formular normal absenden
       if (current && document.contains(current)) {
         stop(e);
+        if (isEnterRepeat(e)) return;
         activate(current);
       } else {
         var f = firstInView();
@@ -1007,6 +1023,7 @@
   window.addEventListener('keydown', onKey, true);
   // Loslassen der Pfeiltasten beendet die Zeigerbewegung
   function onKeyUp(e) {
+    if (e.keyCode === KEY.ENTER) { enter.upSince = true; enter.everUp = true; }
     if (window.__TVL_DISABLE || navMode() !== 'pointer') return;
     var dir = DIRS[e.keyCode];
     if (dir) { pointerKeyUp(dir); stop(e); }
