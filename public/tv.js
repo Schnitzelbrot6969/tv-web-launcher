@@ -13,21 +13,42 @@
     window.__TVL_FRAME = true;
     window.addEventListener('message', function (ev) {
       var d = ev.data;
-      if (!d || d.tvl !== 'click') return;
-      var el = document.elementFromPoint(d.x, d.y);
-      if (!el) return;
-      var opts = { bubbles: true, cancelable: true, view: window, clientX: d.x, clientY: d.y };
-      ['pointerdown', 'mousedown', 'pointerup', 'mouseup'].forEach(function (t) {
-        try { el.dispatchEvent(new ((t.indexOf('pointer') === 0 && window.PointerEvent) ? PointerEvent : MouseEvent)(t, opts)); } catch (e) { /* */ }
-      });
-      if (el.tagName === 'IFRAME') {
-        var r = el.getBoundingClientRect();
-        try { el.contentWindow.postMessage({ tvl: 'click', x: d.x - r.left, y: d.y - r.top }, '*'); } catch (e) { /* */ }
-      } else {
-        if (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) el.focus();
-        el.click();
+      if (!d || (d.tvl !== 'click' && d.tvl !== 'hover' && d.tvl !== 'leave')) return;
+      var el = d.tvl === 'leave' ? null : deepAt(d.x, d.y);
+      var child = el && el.tagName === 'IFRAME' ? el : null;
+      var prev = window.__TVL_HF;
+      if (prev && prev !== child) { try { prev.contentWindow.postMessage({ tvl: 'leave' }, '*'); } catch (e) { /* */ } }
+      window.__TVL_HF = child;
+      if (child) {
+        // verschachteltes iframe: weiterreichen
+        highlight(null);
+        var r = child.getBoundingClientRect();
+        try { child.contentWindow.postMessage({ tvl: d.tvl, x: d.x - r.left, y: d.y - r.top }, '*'); } catch (e) { /* */ }
+        return;
       }
+      if (d.tvl === 'leave') { highlight(null); return; }
+      if (d.tvl === 'hover') { highlight(findClickable(d.x, d.y)); return; }
+      if (el) fireClick(el, d.x, d.y, false);
     });
+    // Fernbedienungs-Tasten an die Hauptseite weiterleiten (Zeiger, OK, Zurueck, Medientasten)
+    var fwdKey = function (ev) {
+      if (window.__TVL_DISABLE) return;
+      var code = ev.keyCode;
+      var back = code === 10009 || code === 27 || ev.key === 'Escape' || ev.key === 'XF86Back';
+      if (!(back || code === 13 || code === 19 || (code >= 37 && code <= 40) || code >= 400)) return;
+      var a = document.activeElement;
+      while (a && a.shadowRoot && a.shadowRoot.activeElement) a = a.shadowRoot.activeElement;
+      if (isTextField(a)) {
+        // Tippen im Feld nicht stoeren; Zurueck schliesst nur die Tastatur
+        if (back && ev.type === 'keydown') { a.blur(); ev.preventDefault(); ev.stopPropagation(); }
+        return;
+      }
+      ev.preventDefault();
+      ev.stopPropagation();
+      try { window.top.postMessage({ tvl: 'key', type: ev.type, keyCode: code, key: ev.key }, '*'); } catch (e) { /* */ }
+    };
+    window.addEventListener('keydown', fwdKey, true);
+    window.addEventListener('keyup', fwdKey, true);
     return;
   }
   if (window.__TVL_ACTIVE) return;
@@ -137,10 +158,16 @@
 
   // ---------- Stile ----------
   var baseCss =
-    'html, body, * { cursor: none !important; }' +
     '.tvl-focus { outline: 4px solid #ffc400 !important; outline-offset: 2px !important;' +
     ' box-shadow: 0 0 0 7px rgba(0,0,0,.65), 0 0 22px 6px rgba(255,196,0,.75) !important; border-radius: 4px; }' +
     'video:fullscreen, video:-webkit-full-screen { object-fit: contain !important; width: 100% !important; height: 100% !important; max-width: none !important; max-height: none !important; background: #000 !important; }' +
+    // Ersatz-Vollbild, falls der Browser echtes Vollbild verweigert
+    '.tvl-pfs { position: fixed !important; left: 0 !important; top: 0 !important; width: 100vw !important; height: 100vh !important;' +
+    ' max-width: none !important; max-height: none !important; margin: 0 !important; object-fit: contain !important; background: #000 !important;' +
+    ' z-index: 2147483646 !important; transform: none !important; }' +
+    '.tvl-pfs-anc { transform: none !important; filter: none !important; perspective: none !important; contain: none !important;' +
+    ' will-change: auto !important; z-index: 2147483646 !important; overflow: visible !important; }' +
+    'html.tvl-pfs-on, html.tvl-pfs-on body { overflow: hidden !important; }' +
     '#tvl-toast { position: fixed; left: 50%; bottom: 48px; transform: translateX(-50%); z-index: 2147483647;' +
     ' background: rgba(20,20,24,.92); color: #fff; font: 600 26px/1.3 sans-serif; padding: 14px 28px;' +
     ' border-radius: 14px; box-shadow: 0 8px 30px rgba(0,0,0,.5); pointer-events: none; transition: opacity .3s; }';
@@ -245,6 +272,13 @@
       cross = overlapGap(from.left, from.right, to.left, to.right);
     }
     return main + cross * 2.5;
+  }
+
+  // Aktives Element, auch innerhalb von Shadow-DOM (Suchfelder in Web-Components)
+  function deepActive() {
+    var a = document.activeElement, guard = 0;
+    while (a && a.shadowRoot && a.shadowRoot.activeElement && guard++ < 10) a = a.shadowRoot.activeElement;
+    return a;
   }
 
   function isTextField(el) {
@@ -377,8 +411,23 @@
   } catch (e) { /* */ }
 
   // ---------- Medien ----------
+  // Videos auch in Shadow-DOM-Playern finden (z. B. ZDF, viele Web-Component-Player)
+  function mediaElements(sel) {
+    var out = [].slice.call(document.querySelectorAll(sel));
+    var stack = [document], guard = 0;
+    while (stack.length && guard++ < 200) {
+      var root = stack.pop();
+      var all = root.querySelectorAll('*');
+      for (var i = 0; i < all.length; i++) {
+        var sr = all[i].shadowRoot;
+        if (sr) { out = out.concat([].slice.call(sr.querySelectorAll(sel))); stack.push(sr); }
+      }
+    }
+    return out;
+  }
+
   function mainVideo() {
-    var vids = [].slice.call(document.querySelectorAll('video, audio'));
+    var vids = mediaElements('video, audio');
     if (!vids.length) return null;
     vids.sort(function (a, b) {
       var ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
@@ -432,6 +481,7 @@
 
   function goBack() {
     // Vollbild verlassen hat Vorrang
+    if (pfs.v) { exitPseudoFs(); return; }
     if (document.fullscreenElement || document.webkitFullscreenElement) {
       try { (document.exitFullscreen || document.webkitExitFullscreen).call(document); } catch (e) { /* */ }
       return;
@@ -453,7 +503,7 @@
   // ---------- Mauszeiger-Modus (Standard) ----------
   // Pfeiltasten bewegen einen sichtbaren Zeiger, gedrueckt halten beschleunigt, OK klickt.
   // Am Bildschirmrand wird die Seite bzw. der scrollbare Bereich unter dem Zeiger gescrollt.
-  var ptr = { x: 0, y: 0, el: null, speed: 0, lastKey: 0, lastDir: '', lastOk: 0 };
+  var ptr = { x: 0, y: 0, el: null, speed: 0, lastKey: 0, lastDir: '' };
 
   function navMode() {
     var n = state.current && state.current.nav;
@@ -467,7 +517,16 @@
     if (!document.body) return null;
     var c = document.createElement('div');
     c.id = 'tvl-cursor';
-    c.innerHTML = '<svg width="40" height="40" viewBox="0 0 24 24"><path d="M4 2l16 9.5-7 1.3 4.2 7.6-3 1.6-4.2-7.7L4 19z" fill="#fff" stroke="#000" stroke-width="1.6" stroke-linejoin="round"/></svg>';
+    // Ohne innerHTML aufbauen (Seiten wie YouTube erzwingen "Trusted Types")
+    var NS = 'http://www.w3.org/2000/svg';
+    var svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('width', '40'); svg.setAttribute('height', '40'); svg.setAttribute('viewBox', '0 0 24 24');
+    var path = document.createElementNS(NS, 'path');
+    path.setAttribute('d', 'M4 2l16 9.5-7 1.3 4.2 7.6-3 1.6-4.2-7.7L4 19z');
+    path.setAttribute('fill', '#fff'); path.setAttribute('stroke', '#000');
+    path.setAttribute('stroke-width', '1.6'); path.setAttribute('stroke-linejoin', 'round');
+    svg.appendChild(path);
+    c.appendChild(svg);
     c.style.cssText = 'position:fixed;left:0;top:0;width:40px;height:40px;z-index:2147483647;pointer-events:none;' +
       'filter:drop-shadow(0 0 4px rgba(0,0,0,.7)) drop-shadow(0 0 10px rgba(255,196,0,.6));transition:opacity .2s;will-change:transform';
     document.body.appendChild(c);
@@ -504,10 +563,73 @@
 
   // Elemente fuer Hover-Menues informieren
   var lastHover = null;
-  var CLICKABLE = 'button, a[href], input, select, textarea, label, summary, [role="button"], [role="link"], [role="menuitem"], [role="tab"], [role="checkbox"], [onclick], [tabindex]';
-  var hl = { el: null, outline: '', shadow: '' };
+  // Echte Bedienelemente (Dialog-Container mit tabindex zaehlen bewusst nicht dazu)
+  function clickableSel() { return 'button, a[href], input:not([type="hidden"]), select, textarea, summary, label, [role="button"], [role="link"], [role="menuitem"], [role="tab"], [role="checkbox"], [role="switch"], [role="option"], [onclick]'; }
+
+  function tooBig(r) { return r.width * r.height > window.innerWidth * window.innerHeight * 0.25; }
+
+  // Klickbares Element zu einem Treffer: echte Bedienelemente (Link, Knopf ...) oder
+  // Elemente, die die Seite selbst als klickbar markiert (Mauszeiger "Hand", z. B. div mit onclick)
+  function clickableOf(el) {
+    var c = closestDeep(el, clickableSel());
+    if (c && !tooBig(c.getBoundingClientRect())) return c;
+    var p = null, n = el, depth = 0;
+    while (n && depth++ < 8) {
+      if (n.nodeType === 1) {
+        var cur = '';
+        try { cur = window.getComputedStyle(n).cursor; } catch (e) { /* */ }
+        if (cur === 'pointer') { if (tooBig(n.getBoundingClientRect())) break; p = n; } else if (p) break;
+      }
+      n = n.parentElement || (n.getRootNode && n.getRootNode().host) || null;
+    }
+    return p;
+  }
+
+  // Pruefpunkte rund um den Zeiger (Magnet, Radius 32 px), nach Abstand sortiert
+  function probes() {
+    if (probes.list) return probes.list;
+    var list = [];
+    for (var dy = -32; dy <= 32; dy += 8) {
+      for (var dx = -32; dx <= 32; dx += 8) {
+        if (dx * dx + dy * dy <= 32 * 32) list.push([dx, dy, dx * dx + dy * dy]);
+      }
+    }
+    list.sort(function (a, b) { return a[2] - b[2]; });
+    probes.list = list;
+    return list;
+  }
+
+  // Bedienelement unter oder knapp neben dem Zeiger.
+  // Es zaehlen nur Elemente, die an der Stelle wirklich sichtbar oben liegen (Treffertest),
+  // damit z. B. ein Cookie-Fenster nicht die Links darunter "durchlaesst".
+  function findClickable(x, y) {
+    var el = deepAt(x, y);
+    var direct = el ? clickableOf(el) : null;
+    if (direct) return direct;
+    var best = null, bestD = Infinity, seen = [], PROBES = probes();
+    var W = window.innerWidth, H = window.innerHeight;
+    for (var i = 0; i < PROBES.length; i++) {
+      var px = x + PROBES[i][0], py = y + PROBES[i][1];
+      if (px < 0 || py < 0 || px >= W || py >= H) continue;
+      // weiter entfernte Pruefpunkte koennen kein naeheres Element mehr liefern
+      if (best && Math.sqrt(PROBES[i][2]) - 8 > bestD) break;
+      var hit = deepAt(px, py);
+      var c = hit ? clickableOf(hit) : null;
+      if (!c || seen.indexOf(c) >= 0) continue;
+      seen.push(c);
+      var r = c.getBoundingClientRect();
+      if (r.width < 4 || r.height < 4 || tooBig(r)) continue;
+      var ddx = x < r.left ? r.left - x : (x > r.right ? x - r.right : 0);
+      var ddy = y < r.top ? r.top - y : (y > r.bottom ? y - r.bottom : 0);
+      var d = Math.sqrt(ddx * ddx + ddy * ddy);
+      if (d < bestD) { bestD = d; best = c; }
+    }
+    // Kein Ersatz ueber tabindex: Dialog-Container (z. B. Cookie-Fenster) wuerden sonst umrandet
+    return best;
+  }
   // Klickbares Element unter dem Zeiger gelb umranden (auch im Shadow-DOM, daher inline)
   function highlight(target) {
+    var hl = highlight.st || (highlight.st = { el: null, outline: '', shadow: '' });
     if (hl.el === target) return;
     if (hl.el) { hl.el.style.outline = hl.outline; hl.el.style.boxShadow = hl.shadow; }
     hl.el = target || null;
@@ -516,10 +638,15 @@
     target.style.outline = '4px solid #ffc400';
     target.style.boxShadow = '0 0 18px 4px rgba(255,196,0,.7)';
   }
+  var hoverGap = 60;
   function hoverAt() {
+    var t0 = performance.now();
     var el = deepAt(ptr.x, ptr.y);
-    var tgt = el ? closestDeep(el, CLICKABLE) : null;
-    highlight(tgt && tgt !== document.body && tgt !== document.documentElement ? tgt : null);
+    var frame = el && el.tagName === 'IFRAME' ? el : null;
+    relayHover(frame, ptr.x, ptr.y);
+    highlight(frame ? null : findClickable(ptr.x, ptr.y));
+    // Langsame Geraete: Erkennung seltener ausfuehren, damit der Zeiger fluessig bleibt
+    hoverGap = Math.max(60, Math.min(250, (performance.now() - t0) * 6));
     if (!el || el === lastHover) return;
     var opts = { bubbles: true, cancelable: true, view: window, clientX: ptr.x, clientY: ptr.y };
     try {
@@ -621,7 +748,7 @@
     ptr.x = Math.max(2, Math.min(W - 2, nx));
     ptr.y = Math.max(2, Math.min(H - 2, ny));
     drawCursor();
-    if (t - lastHoverAt > 60) { lastHoverAt = t; hoverAt(); }
+    if (t - lastHoverAt > hoverGap) { lastHoverAt = t; hoverAt(); }
     anim = requestAnimationFrame(pointerFrame);
   }
 
@@ -630,7 +757,7 @@
     if (!el) return null;
     if (el.tagName === 'VIDEO') return el;
     // Videoplayer legen oft Bedien-Ebenen ueber das Video
-    var vids = document.querySelectorAll('video');
+    var vids = mediaElements('video');
     for (var i = 0; i < vids.length; i++) {
       var r = vids[i].getBoundingClientRect();
       if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom && r.width > 200) return vids[i];
@@ -638,49 +765,129 @@
     return null;
   }
 
-  function toggleFullscreen(v) {
-    var fsEl = document.fullscreenElement || document.webkitFullscreenElement;
-    try {
-      if (fsEl) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
-      else (v.requestFullscreen || v.webkitRequestFullscreen || v.webkitEnterFullscreen).call(v);
-    } catch (e) { /* */ }
+  // Ersatz-Vollbild: Video per CSS ueber die ganze Seite legen
+  var pfs = { v: null, anc: [] };
+  function enterPseudoFs(v) {
+    exitPseudoFs();
+    pfs.v = v;
+    v.classList.add('tvl-pfs');
+    for (var a = v.parentElement; a && a !== document.documentElement; a = a.parentElement) {
+      a.classList.add('tvl-pfs-anc');
+      pfs.anc.push(a);
+    }
+    document.documentElement.classList.add('tvl-pfs-on');
+    remoteLog('fullscreen-css', {});
+  }
+  function exitPseudoFs() {
+    if (!pfs.v) return;
+    pfs.v.classList.remove('tvl-pfs');
+    pfs.anc.forEach(function (a) { a.classList.remove('tvl-pfs-anc'); });
+    pfs = { v: null, anc: [] };
+    document.documentElement.classList.remove('tvl-pfs-on');
   }
 
+  function toggleFullscreen(v) {
+    if (pfs.v) { exitPseudoFs(); return; }
+    var fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+    if (fsEl) {
+      try { (document.exitFullscreen || document.webkitExitFullscreen).call(document); } catch (e) { /* */ }
+      return;
+    }
+    var req = v.requestFullscreen || v.webkitRequestFullscreen || v.webkitEnterFullscreen;
+    if (!req) { enterPseudoFs(v); return; }
+    try {
+      var p = req.call(v);
+      if (p && p.catch) p.catch(function () { enterPseudoFs(v); });
+      else setTimeout(function () { if (!document.fullscreenElement && !document.webkitFullscreenElement) enterPseudoFs(v); }, 400);
+    } catch (e) { enterPseudoFs(v); }
+  }
+
+  // Klick wie mit einer Maus: Bedienelement unter/neben dem Punkt (gleiches Ziel wie die gelbe Umrandung)
+  function fireClick(el, x, y, isTop) {
+    var found = findClickable(x, y);
+    var target = found || el;
+    if (found) {
+      // Ereignisse auf das Ziel und dessen Mitte richten, falls der Zeiger knapp daneben liegt
+      var fr = found.getBoundingClientRect();
+      if (x < fr.left || x > fr.right || y < fr.top || y > fr.bottom) {
+        x = fr.left + fr.width / 2; y = fr.top + fr.height / 2;
+        var inner = deepAt(x, y);
+        el = (inner && (inner === found || found.contains(inner))) ? inner : found;
+      } else if (!(el === found || found.contains(el))) {
+        el = found;
+      }
+    }
+    var link = closestDeep(target, 'a[href]');
+    if (isTop && link && link.target && link.target !== '_self' && !/^javascript:/i.test(link.href)) { location.href = link.href; return; }
+    if (isTop) remoteLog('click', { tag: target.tagName, text: (target.innerText || target.value || '').trim().slice(0, 40), x: Math.round(x), y: Math.round(y) });
+    // Ereignisfolge wie bei einer echten Maus (pointerId, pointerType "mouse", detail).
+    // Manche Seiten (z. B. ZDF, React-Aria) reagieren sonst nicht auf den Klick.
+    var base = { bubbles: true, cancelable: true, composed: true, view: window, clientX: x, clientY: y, screenX: x, screenY: y, button: 0 };
+    var fire = function (type, buttons, detail) {
+      var o = {};
+      for (var k in base) o[k] = base[k];
+      o.buttons = buttons;
+      try {
+        if (type.indexOf('pointer') === 0 && window.PointerEvent) {
+          o.pointerId = 1; o.pointerType = 'mouse'; o.isPrimary = true; o.width = 1; o.height = 1; o.pressure = buttons ? 0.5 : 0;
+          return el.dispatchEvent(new PointerEvent(type, o));
+        }
+        if (type.indexOf('pointer') === 0) return true;
+        o.detail = detail;
+        return el.dispatchEvent(new MouseEvent(type, o));
+      } catch (e) { return true; }
+    };
+    fire('pointerover', 0, 0); fire('pointerenter', 0, 0); fire('mouseover', 0, 0);
+    fire('pointermove', 0, 0); fire('mousemove', 0, 0);
+    fire('pointerdown', 1, 0);
+    var downOk = fire('mousedown', 1, 1);
+    var field = closestDeep(el, 'input, textarea, select, [contenteditable="true"], [contenteditable=""]');
+    if (field) { field.focus(); } else if (downOk) { try { target.focus({ preventScroll: true }); } catch (e) { /* */ } }
+    fire('pointerup', 0, 0);
+    fire('mouseup', 0, 1);
+    // Klick auf das Element unter dem Punkt; er steigt zum Bedienelement auf (Links, Knoepfe, Labels)
+    fire('click', 0, 1);
+  }
+
+  // iframes (Cookie-Fenster, Player) bekommen Zeigerposition und Klick per Nachricht
+  var hoverFrame = null;
+  function relayHover(frame, x, y) {
+    if (hoverFrame && hoverFrame !== frame) { try { hoverFrame.contentWindow.postMessage({ tvl: 'leave' }, '*'); } catch (e) { /* */ } }
+    hoverFrame = frame;
+    if (!frame) return;
+    var r = frame.getBoundingClientRect();
+    try { frame.contentWindow.postMessage({ tvl: 'hover', x: x - r.left, y: y - r.top }, '*'); } catch (e) { /* */ }
+  }
+
+  // Auf einem Video wartet der erste OK-Druck kurz: kommt ein zweiter, gibt es nur Vollbild
+  // (ohne vorher Pause/Wiedergabe umzuschalten), sonst wird normal geklickt.
+  var pendingClick = null;
   function pointerClick() {
     if (!ensureCursor()) return;
     var x = ptr.x, y = ptr.y;
-    var now = Date.now();
     var v = videoAt(x, y);
-    // Zweimal OK auf einem Video = Vollbild ein/aus
-    if (v && now - ptr.lastOk < 450) { ptr.lastOk = 0; toggleFullscreen(v); return; }
-    ptr.lastOk = now;
+    // Eingebetteter Player (iframe, z. B. Dailymotion, Vimeo): das iframe als Ganzes in Vollbild
+    var under = deepAt(x, y);
+    if (!v && under && under.tagName === 'IFRAME' && under.getBoundingClientRect().width > 300) v = under;
+    if (ptr.el) { ptr.el.style.opacity = '.4'; setTimeout(function () { ptr.el.style.opacity = '1'; }, 120); }
+    if (v) {
+      if (pendingClick) { clearTimeout(pendingClick); pendingClick = null; toggleFullscreen(v); return; }
+      pendingClick = setTimeout(function () { pendingClick = null; clickAt(x, y); }, 400);
+      return;
+    }
+    clickAt(x, y);
+  }
+
+  function clickAt(x, y) {
     var el = deepAt(x, y);
     if (!el) return;
-    if (ptr.el) { ptr.el.style.opacity = '.4'; setTimeout(function () { ptr.el.style.opacity = '1'; }, 120); }
     if (el.tagName === 'IFRAME') {
       var r = el.getBoundingClientRect();
       try { el.contentWindow.postMessage({ tvl: 'click', x: x - r.left, y: y - r.top }, '*'); } catch (e) { /* */ }
       remoteLog('click-iframe', { src: (el.src || '').slice(0, 80) });
       return;
     }
-    var link = closestDeep(el, 'a[href]');
-    if (link && link.target && link.target !== '_self' && !/^javascript:/i.test(link.href)) { location.href = link.href; return; }
-    // Klickbares Ziel bevorzugen (Text-Span in einem Button o. ae.)
-    var target = closestDeep(el, 'button, a[href], input, select, textarea, label, summary, [role="button"], [role="link"], [role="menuitem"], [role="tab"], [role="checkbox"], [onclick], [tabindex]') || el;
-    remoteLog('click', { tag: target.tagName, text: (target.innerText || target.value || '').trim().slice(0, 40), x: Math.round(x), y: Math.round(y) });
-    var opts = { bubbles: true, cancelable: true, composed: true, view: window, clientX: x, clientY: y, button: 0, buttons: 1 };
-    ['pointerover', 'pointerenter', 'mouseover', 'pointerdown', 'mousedown'].forEach(function (t) {
-      try { el.dispatchEvent(new ((t.indexOf('pointer') === 0 && window.PointerEvent) ? PointerEvent : MouseEvent)(t, opts)); } catch (e) { /* */ }
-    });
-    var field = closestDeep(el, 'input, textarea, select, [contenteditable="true"], [contenteditable=""]');
-    if (field) { field.focus(); } else { try { target.focus({ preventScroll: true }); } catch (e) { /* */ } }
-    opts.buttons = 0;
-    ['pointerup', 'mouseup'].forEach(function (t) {
-      try { el.dispatchEvent(new ((t.indexOf('pointer') === 0 && window.PointerEvent) ? PointerEvent : MouseEvent)(t, opts)); } catch (e) { /* */ }
-    });
-    if (field) { try { field.click(); } catch (e) { /* */ } return; }
-    // Echter Klick auf das klickbare Ziel (loest onclick- und Framework-Handler aus)
-    try { target.click(); } catch (e) { try { target.dispatchEvent(new MouseEvent('click', opts)); } catch (x2) { /* */ } }
+    fireClick(el, x, y, true);
   }
 
   // ---------- Diagnose: Ereignisse an das NAS melden (ueber den Dienst auf dem TV) ----------
@@ -698,6 +905,7 @@
     });
   }
   window.__TVL_LOG = remoteLog;
+  window.__TVL_DBG = { findClickable: function (x, y) { return findClickable(x, y); }, deepAt: function (x, y) { return deepAt(x, y); }, ptr: ptr };
 
   // ---------- Tastatur ----------
   var backTimer = null;
@@ -715,7 +923,7 @@
   function onKey(e) {
     if (window.__TVL_DISABLE) return;
     var code = e.keyCode;
-    var ae = document.activeElement;
+    var ae = deepActive();
     var editing = isTextField(ae);
     var mode = navMode();
     var nativeNav = mode === 'native';
@@ -798,11 +1006,20 @@
 
   window.addEventListener('keydown', onKey, true);
   // Loslassen der Pfeiltasten beendet die Zeigerbewegung
-  window.addEventListener('keyup', function (e) {
+  function onKeyUp(e) {
     if (window.__TVL_DISABLE || navMode() !== 'pointer') return;
     var dir = DIRS[e.keyCode];
     if (dir) { pointerKeyUp(dir); stop(e); }
-  }, true);
+  }
+  window.addEventListener('keyup', onKeyUp, true);
+  // Liegt der Fokus in einem iframe (Cookie-Fenster, Player), kommen die Tasten dort an.
+  // tv.js im iframe leitet sie hierher weiter.
+  window.addEventListener('message', function (ev) {
+    var d = ev.data;
+    if (!d || d.tvl !== 'key') return;
+    var fake = { keyCode: d.keyCode, key: d.key, preventDefault: function () {}, stopPropagation: function () {}, stopImmediatePropagation: function () {} };
+    if (d.type === 'keydown') onKey(fake); else onKeyUp(fake);
+  });
 
   // Fokus, den die Seite selbst setzt (z. B. Suchfeld), sichtbar uebernehmen
   document.addEventListener('focusin', function (ev) {
@@ -837,6 +1054,10 @@
       if (navMode() === 'pointer') ensureCursor();
       else if (navMode() === 'focus' && !current) { var f = firstInView(); if (f) setFocus(f, { scroll: false }); }
     }, 900);
+    // Manche Seiten ersetzen beim Aufbau den ganzen Seiteninhalt: Zeiger dann sofort wieder einsetzen
+    setInterval(function () {
+      if (navMode() === 'pointer' && document.body && !(ptr.el && document.contains(ptr.el))) ensureCursor();
+    }, 700);
     try {
       if (!sessionStorage.getItem('tvl_hint')) {
         sessionStorage.setItem('tvl_hint', '1');

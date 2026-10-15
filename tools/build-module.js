@@ -30,7 +30,6 @@ const loader = `/*
  * TizenBrew fuehrt diese Datei in jeder geladenen Seite aus (auch nach Wechsel auf fremde Domains).
  */
 (function () {
-  if (window.top !== window) return;
   var BASE = ${JSON.stringify(nasUrl)};
   function run() {
     if (!document.documentElement) { setTimeout(run, 15); return; }
